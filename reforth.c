@@ -819,7 +819,7 @@ main(int argc, char *argv[], char *env[])
 	cell *rsp; // Return stack pointer
 	cell *asp; // Alternate data stack pointer
 
-	int i;
+	int i, j;
 	tok *tokp, exec[2], *cp;
 	cell *cellp, tmp, tos, num;
 	char *charp, *s1, *s2;
@@ -830,10 +830,18 @@ main(int argc, char *argv[], char *env[])
 	// Assume the last command line argument is our Forth source file
 	char *run = NULL;
 	for (i = 1; i < argc; i++)
-		run = argv[i];
+	{
+		if (strncmp(argv[i], "--", 2))
+			run = argv[i];
+	}
 
-	for (i = 0; env[i]; i++)
-		fprintf(stderr, "%s\n", env[i]);
+	// DEBUG stuff
+	for (i = 0; i < argc; i++)
+	{
+		if (!strcmp(argv[i], "--dump-envs"))
+			for (j = 0; env[j]; j++)
+				fprintf(stderr, "%s\n", env[j]);
+	}
 
 	// Initialize the dictionary headers
 
