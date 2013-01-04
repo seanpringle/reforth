@@ -49,7 +49,7 @@ int main(int argc, char *argv[])
 		out = fopen(file, "w+");
 		sanity(out, "could not create %s", file);
 
-		fprintf(out, "const char pfft_%s[] = {\n", name);
+		fprintf(out, "const char %s[] = {\n", name);
 		for (j = 0, d = 0, lit = 0; (c = fgetc(in)) && c != EOF;)
 		{
 			// skip commented lines

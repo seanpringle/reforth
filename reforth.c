@@ -922,7 +922,7 @@ main(int argc, char *argv[], char *env[])
 
 	// Look for a Forth source file on the command line
 
-	char *fsrc = strdup(pfft_src_base);
+	char *fsrc = strdup(src_base);
 
 	if (run)
 	{
