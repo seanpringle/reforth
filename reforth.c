@@ -83,7 +83,7 @@ enum {
 	VALUE, VARY, CREATE, EMIT, KEY, KEYQ, ALLOCATE, RESIZE, FREE, FORMAT,
 	DEPTH, HERE, ALLOT, COMMA, CCOMMA, CELLS, BYTES, ZNE, PLACE, PICK, ABS,
 	SMOD, TYPE, EVALUATE, COUNT, COMPARE, GETENV, PUTENV, SLURP, BLURT, NOP,
-	SYS, COLON, SCOLON, IF, ELSE, FOR, BEGIN, END, COM1, COM2, FIELDS, FIELD,
+	SYS, COLON, SCOLON, IF, ELSE, FOR, BEGIN, END, COM1, COM2, RECORD, FIELD,
 	DOES, ENTER, DOVAL, DOVAR, DOADD, DODOES, LIT_TOK, LIT_NUM, LIT_STR,
 	BRANCH, JUMP, LOOP, ELOOP, MACROS, NORMALS, LATEST, ADDER, HEAD_XT,
 	XT_HEAD, XT_NAME, XT_CODE, XT_BODY, XT_LIST, XT_LINK, PARSE, SPARSE, FIND,
@@ -307,7 +307,7 @@ wordinit list_macros[] = {
 	{ .token = END,      .name = "end"      },
 	{ .token = COM1,     .name = "\\"       },
 	{ .token = COM2,     .name = "("        },
-	{ .token = FIELDS,   .name = "record"   },
+	{ .token = RECORD,   .name = "record"   },
 	{ .token = FIELD,    .name = "field"    },
 	{ .token = DOES,     .name = "does"     },
 };
@@ -619,6 +619,7 @@ find(word *w, char *name)
 	else
 	{
 		char *split = NULL;
+		// detect outer:inner word notation
 		if ((split = strchr(name, ':')) && split[1] && split > name)
 		{
 			*split = 0;
@@ -646,13 +647,14 @@ find(word *w, char *name)
 	}
 }
 
-// Find a namespace:name pair in a wordlist
+// Find an object.method pair in a wordlist
 tok
 findpair(word *w, char *name, tok *xt)
 {
 	cell a = 0, b = 0;
 
 	char *split = NULL;
+	// detect object.method notation
 	if (name[0] && name[0] != '.' && (split = strchr(name, '.')))
 	{
 		*split = 0;
@@ -832,15 +834,15 @@ main(int argc, char *argv[], char *env[])
 	for (i = 1; i < argc; i++)
 	{
 		if (strncmp(argv[i], "--", 2))
+		{
 			run = argv[i];
-	}
-
-	// DEBUG stuff
-	for (i = 0; i < argc; i++)
-	{
+		}
+		else
 		if (!strcmp(argv[i], "--dump-envs"))
+		{
 			for (j = 0; env[j]; j++)
 				fprintf(stderr, "%s\n", env[j]);
+		}
 	}
 
 	// Initialize the dictionary headers
@@ -850,14 +852,12 @@ main(int argc, char *argv[], char *env[])
 	for (i = 0; i < sizeof(list_normals)/sizeof(wordinit); i++)
 	{
 		hp = &head[list_normals[i].token];
-
 		hp->name = list_normals[i].name;
 		if (list_normals[i].high)
 		{
 			call[hp-head] = &&code_ENTER;
 			body[hp-head] = list_normals[i].high;
 		}
-
 		hp->subs = hp;
 		hp->prev = last;
 		last = hp;
@@ -875,14 +875,12 @@ main(int argc, char *argv[], char *env[])
 	for (i = 0; i < sizeof(list_hiddens)/sizeof(wordinit); i++)
 	{
 		hp = &head[list_hiddens[i].token];
-
 		hp->name = list_hiddens[i].name;
 		if (list_hiddens[i].high)
 		{
 			call[hp-head] = &&code_ENTER;
 			body[hp-head] = list_hiddens[i].high;
 		}
-
 		hp->subs = hp;
 		hp->prev = last;
 		last = hp;
@@ -897,14 +895,12 @@ main(int argc, char *argv[], char *env[])
 	for (i = 0; i < sizeof(list_macros)/sizeof(wordinit); i++)
 	{
 		hp = &head[list_macros[i].token];
-
 		hp->name = list_macros[i].name;
 		if (list_macros[i].high)
 		{
 			call[hp-head] = &&code_ENTER;
 			body[hp-head] = list_macros[i].high;
 		}
-
 		hp->subs = hp;
 		hp->prev = last;
 		last = hp;
@@ -1818,17 +1814,20 @@ main(int argc, char *argv[], char *env[])
 
 	// ( ... a n -- )
 	CODE(END)
+		// IF or ELSE
 		if (tos == 1)
 		{
 			patch((tok*)dpop, &cp);
 		}
 		else
+		// BEGIN or FOR
 		if (tos == 2)
 		{
 			compile(ELOOP, &cp);
 			patch((tok*)dpop, &cp);
 		}
 		else
+		// RECORD
 		if (tos == 3)
 		{
 			tmp = dpop; // size
@@ -1838,6 +1837,8 @@ main(int argc, char *argv[], char *env[])
 			dpush(tmp);
 			goto code_VARY;
 		}
+		// IF BEGIN FOR enter compile mode automatically if called while in interpret mode.
+		// END detects that, auto-executes the code fragment, and reverts to interpret mode.
 		if (tos == 1 || tos == 2)
 		{
 			mode--;
@@ -1853,7 +1854,7 @@ main(int argc, char *argv[], char *env[])
 	NEXT
 
 	// ( -- f a xt 0 n )
-	CODE(FIELDS)
+	CODE(RECORD)
 		dpush(tos);
 
 		dpush(mode);
