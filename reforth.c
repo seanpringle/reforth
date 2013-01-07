@@ -45,6 +45,12 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include <sys/wait.h>
 #endif
 
+#ifdef LIB_SHELL
+#include <termios.h>
+#include <sys/ioctl.h>
+#include <poll.h>
+#endif
+
 /*
 #ifdef LIB_SERVE
 #include <sys/socket.h>
@@ -79,7 +85,7 @@ enum {
 	TOP, NIP, ROT, TUCK, S_MY, MY, S_AT, AT, ATSP, ATFP, ATCSP, ATCFP, FETCH,
 	STORE, PSTORE, CFETCH, CSTORE, CELL, NEG, ADD, SUB, SHL, SHR, MUL, DIV,
 	MOD, AND, OR, XOR, LESS, MORE, EQUAL, NEQUAL, ZEQUAL, ZLESS, ZMORE, MAX,
-	MIN, ADD1, SUB1, SHL1, SHR1, EXECUTE, CMOVE, NUMBER, MACRO, NORMAL,
+	MIN, ADD1, SUB1, SHL1, SHR1, EXECUTE, MOVE, CMOVE, NUMBER, MACRO, NORMAL,
 	VALUE, VARY, CREATE, EMIT, KEY, KEYQ, ALLOCATE, RESIZE, FREE, FORMAT,
 	DEPTH, HERE, ALLOT, COMMA, CCOMMA, CELLS, BYTES, ZNE, PLACE, PICK, ABS,
 	SMOD, TYPE, EVALUATE, COUNT, COMPARE, GETENV, PUTENV, SLURP, BLURT, NOP,
@@ -88,7 +94,11 @@ enum {
 	BRANCH, JUMP, LOOP, ELOOP, MACROS, NORMALS, LATEST, ADDER, HEAD_XT,
 	XT_HEAD, XT_NAME, XT_CODE, XT_BODY, XT_LIST, XT_LINK, PARSE, SPARSE, FIND,
 	FINDPAIR, COMPILE, NCOMPILE, SCOMPILE, MODE, LABEL, REDOES, ONOK, ONWHAT,
-	ONERROR, SOURCE, ERROR,
+	ONERROR, SOURCE, ERROR, USEC,
+
+#ifdef LIB_SHELL
+	AT_XY, MAX_XY,
+#endif
 
 #ifdef LIB_REGEX
 	MATCH, SPLIT,
@@ -249,6 +259,7 @@ wordinit list_normals[] = {
 	{ .token = SHL1,     .name = "2*"       },
 	{ .token = SHR1,     .name = "2/"       },
 	{ .token = EXECUTE,  .name = "execute"  },
+	{ .token = MOVE,     .name = "move"     },
 	{ .token = CMOVE,    .name = "cmove"    },
 	{ .token = NUMBER,   .name = "number"   },
 	{ .token = MACRO,    .name = "macro"    },
@@ -284,7 +295,13 @@ wordinit list_normals[] = {
 	{ .token = PICK,     .name = "pick"     },
 	{ .token = TYPE,     .name = "type"     },
 	{ .token = ERROR,    .name = "error"    },
+	{ .token = USEC,     .name = "usec"     },
 	{ .token = EVALUATE, .name = "evaluate", .high = high_evaluate },
+
+#ifdef LIB_SHELL
+	{ .token = AT_XY,    .name = "at-xy"    },
+	{ .token = MAX_XY,   .name = "max-xy"   },
+#endif
 
 #ifdef LIB_REGEX
 	{ .token = MATCH,    .name = "match"    },
@@ -514,6 +531,9 @@ sparse()
 			if (c == 't')
 				c = '\t';
 			else
+			if (c == '\\')
+				c = '\\';
+			else
 			if (c == e)
 				c = e;
 			else
@@ -727,6 +747,49 @@ number(char *conv, cell *res)
 	return 0;
 }
 
+#ifdef LIB_SHELL
+
+void
+at_xy(int x, int y)
+{
+	if (x < 0) x = 0;
+	if (y < 0) y = 0;
+	x++; y++;
+
+	char tmp[32];
+	sprintf(tmp, "\e[%d;%dH", y, x);
+	write(fileno(stdout), tmp, strlen(tmp));
+}
+
+void
+max_xy(int *x, int *y)
+{
+	struct winsize ws;
+	ioctl(0, TIOCGWINSZ, &ws);
+	*x = ws.ws_col-1;
+	*y = ws.ws_row-1;
+}
+
+#endif
+
+int
+key()
+{
+	char c;
+	read(STDIN_FILENO, &c, 1);
+	return c;
+}
+
+int
+keyq()
+{
+	struct pollfd fds;
+	fds.fd = STDIN_FILENO;
+	fds.events = POLLIN;
+	fds.revents = 0;
+	return poll(&fds, 1, 0) > 0 ? -1:0;
+}
+
 #ifdef LIB_REGEX
 
 // POSIX regex match
@@ -824,10 +887,25 @@ main(int argc, char *argv[], char *env[])
 	int i, j;
 	tok *tokp, exec[2], *cp;
 	cell *cellp, tmp, tos, num;
-	char *charp, *s1, *s2;
+	char *charp, *s1, *s2, c;
 	cell index, limit, src, dst;
 	word *w, *hp;
 	void *voidp;
+
+#ifdef LIB_SHELL
+	struct termios old_tio, new_tio;
+
+	if (isatty(STDIN_FILENO))
+	{
+		tcgetattr(STDIN_FILENO,&old_tio);
+
+		new_tio = old_tio;
+		new_tio.c_lflag &= (~ICANON & ~ECHO);
+		new_tio.c_cc[VTIME] = 0;
+		new_tio.c_cc[VMIN] = 1;
+		tcsetattr(STDIN_FILENO, TCSANOW, &new_tio);
+	}
+#endif
 
 	// Assume the last command line argument is our Forth source file
 	char *run = NULL;
@@ -950,7 +1028,8 @@ main(int argc, char *argv[], char *env[])
 
 	// ( -- )
 	CODE(BYE)
-		exit(0);
+		tos = 0;
+		goto shutdown;
 	NEXT
 
 	// ( -- )
@@ -970,7 +1049,8 @@ main(int argc, char *argv[], char *env[])
 	CODE(EXECUTE)
 		xt = tos;
 		tos = dpop;
-		goto *call[xt];
+		if (xt)
+			goto *call[xt];
 	NEXT
 
 	// ( --  a )
@@ -1386,6 +1466,13 @@ main(int argc, char *argv[], char *env[])
 	NEXT
 
 	// ( src dst len -- )
+	CODE(MOVE)
+		dst = dpop, src = dpop;
+		memmove((char*)dst, (char*)src, tos * sizeof(cell));
+		tos = dpop;
+	NEXT
+
+	// ( src dst len -- )
 	CODE(CMOVE)
 		dst = dpop, src = dpop;
 		memmove((char*)dst, (char*)src, tos);
@@ -1577,20 +1664,21 @@ main(int argc, char *argv[], char *env[])
 
 	// ( c -- )
 	CODE(EMIT)
-		fputc(tos, stdout);
+		c = tos;
 		tos = dpop;
+		write(fileno(stdout), &c, 1);
 	NEXT
 
 	// ( -- c )
 	CODE(KEY)
 		dpush(tos);
-		tos = fgetc(stdin);
+		tos = key();
 	NEXT
 
 	// ( -- f )
 	CODE(KEYQ)
 		dpush(tos);
-		tos = feof(stdin) ? 0:-1;
+		tos = keyq();
 	NEXT
 
 	// ( -- a )
@@ -1918,15 +2006,39 @@ main(int argc, char *argv[], char *env[])
 
 	// ( a -- )
 	CODE(TYPE)
-		printf("%s", (char*)tos);
+		write(fileno(stdout), (char*)tos, strlen((char*)tos));
 		tos = dpop;
 	NEXT
 
 	// ( a -- )
 	CODE(ERROR)
-		fprintf(stderr, "%s", (char*)tos);
+		write(fileno(stderr), (char*)tos, strlen((char*)tos));
 		tos = dpop;
 	NEXT
+
+	// ( n -- )
+	CODE(USEC)
+		usleep(tos);
+		tos = dpop;
+	NEXT
+
+#ifdef LIB_SHELL
+
+	// ( x y -- )
+	CODE(AT_XY)
+		at_xy(dpop, tos);
+		tos = dpop;
+	NEXT
+
+	// ( -- x y )
+	CODE(MAX_XY)
+		dpush(tos);
+		max_xy(&i, &j);
+		dpush(i);
+		tos = j;
+	NEXT
+
+#endif
 
 #ifdef LIB_REGEX
 
@@ -1992,6 +2104,12 @@ main(int argc, char *argv[], char *env[])
 	// Finally, jump into Forth!
 	INEXT
 
-	// Should never get here...
-	return 0;
+	shutdown:
+
+#ifdef LIB_SHELL
+	if (isatty(STDIN_FILENO))
+		tcsetattr(STDIN_FILENO, TCSANOW, &old_tio);
+#endif
+
+	return tos;
 }

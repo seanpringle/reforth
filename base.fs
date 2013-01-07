@@ -4,10 +4,15 @@ normal
 0 value false
 -1 value true
 
+: cell+ cell + ;
+: cell- cell - ;
+
 : what ( s -- f )
 	" what? %s" format error false ;
 
 'what sys:on-what !
+
+: variable create 0 , ;
 
 : load ( name -- )
 	slurp dup my! evaluate drop my free ;
@@ -21,6 +26,9 @@ normal
 : space? ( c -- f )
 	dup my! 32 = my 9 = or my 10 = or my 13 = or ;
 
+: hex? ( c -- f )
+	dup my! 64 > my 71 < and my 96 > my 103 < and or my digit? or ;
+
 \ diagnostics
 
 : print format type ;
@@ -30,9 +38,12 @@ normal
 
 : .s ( -- )
 	depth dup "(%d) " print
-	for depth 1- i - pick . end ;
+	for depth 1- i - pick "%d " print end ;
 
 : dump ( a n -- )
+
+	: print ( a -- )
+		format error ;
 
 	: hex ( a -- )
 		at! 16
@@ -44,7 +55,7 @@ normal
 		at! 16
 		for c@+
 			dup alpha? over digit? or 0=
-			if drop 46 end emit
+			if drop 46 end "%c" print
 		end ;
 
 	16 / 1+
@@ -64,51 +75,6 @@ normal
 	end
 	drop "(%d words)" print ;
 
-: accept ( buf lim -- len )
-	over at!
-	for	key my!
-		my while
-		my 10 = until
-		my c!+
-	end	0 c!+
-	at 1- swap - ;
-
-: shell ( -- )
-
-	record fields
-		100 field tib
-	end
-
-	fields allocate my!
-
-	: what ( s -- f )
-		" what? %s\n" print
-		depth for drop end false ;
-
-	: error ( n -- f ) my!
-		begin
-			my 1 =
-			if	" stack underflow!\n" type
-				false leave
-			end
-			false leave
-		end ;
-
-	: ok ( -- f )
-		" ok " type .s cr ;
-
-	'ok    sys:on-ok    !
-	'what  sys:on-what  !
-	'error sys:on-error !
-
-	begin
-		"> " type
-		my tib 100 accept
-		if	my tib evaluate drop
-		end
-	end
-;
-
 : array ( -- )
 
 	record fields
@@ -116,14 +82,17 @@ normal
 		cell field data
 	end
 
+	: bounds ( n a -- n a f )
+		over my! dup size @ my > my 1+ 0> and ;
+
 	: index ( i a -- )
-		dup at! size @ 1- min 0 max cells at data @ + ;
+		data @ swap cells + ;
 
 	: get ( i a -- n )
-		index @ ;
+		bounds if index @ else drop drop 0 end ;
 
 	: set ( n i a -- )
-		index ! ;
+		bounds if index ! else drop drop end ;
 
 	: dump ( a -- )
 		dup at! size @
@@ -133,9 +102,34 @@ normal
 			i " %d => %d\n" print
 		end ;
 
+	: grow ( n a -- )
+		at! dup at size @ + my!
+		at data @ my 1+ cells resize at data ! my at size !
+		0 max for 0 at size @ 1- i - at set end ;
+
+	: ins ( n i a -- )
+		bounds
+		if
+			at! my! my at index dup cell+
+			at size @ my - 1- 0 max move
+			my at set
+		else
+			drop drop drop
+		end ;
+
+	: del ( i a -- n )
+		bounds
+		if
+			at! my! my at get
+			my at index dup cell+ swap
+			at size @ my - 0 max move
+		else
+			drop drop 0
+		end ;
+
 	: construct ( n -- a )
 		here fields allot
-		over cells allocate
+		over 1+ cells allocate
 		over data !
 		tuck size ! ;
 
@@ -229,3 +223,91 @@ normal
 
 	create construct drop does
 ;
+
+: shell ( -- )
+
+	record fields
+		256 array keys
+		256 array ekeys
+		100 array input
+		create tib 100 allot
+		variable caret
+	end
+
+	: caret+ ( n -- )
+		caret @ + 98 min 0 max caret ! ;
+
+	: addc ( c -- )
+		caret @ input.set 1 caret+ ;
+
+	: draw ( -- )
+		"\r\e[?25l\e[K> " type
+		100 for
+			i input.get my!
+			my while my emit
+		end
+		"\e[K\e[?25h" type ;
+
+	: escape ( -- )
+		key 91 =
+		if
+			begin
+				key dup 63 > swap 127 < and until
+			end
+		end ;
+
+	: listen ( -- )
+		0 caret !
+		100 for
+			0 i input.set
+		end
+
+		begin
+			draw
+			key my!
+
+			my 27 =
+			if	escape
+				next
+			end
+
+			my 31 > my 127 < and
+			if	my addc
+				next
+			end
+
+			my 10 = until
+		end
+		tib at!
+		100 for
+			i input.get my!
+			my while my c!+
+		end
+		0 c!+ ;
+
+	: what ( s -- f )
+		" what? %s\n" print
+		depth for drop end false ;
+
+	: error ( n -- f ) my!
+		begin
+			my 1 =
+			if	" stack underflow!\n" type
+				false leave
+			end
+			false leave
+		end ;
+
+	: ok ( -- f )
+		" ok " type .s cr ;
+
+	'ok    sys:on-ok    !
+	'what  sys:on-what  !
+	'error sys:on-error !
+
+	begin
+		listen cr
+		tib evaluate drop
+	end
+;
+
