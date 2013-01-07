@@ -82,19 +82,24 @@ enum {
 	BYE=1, EXIT,
 
 	IDX, LEAVE, CONT, WHILE, UNTIL, DUP, DROP, OVER, SWAP, PUSH, POP,
-	TOP, NIP, ROT, TUCK, S_MY, MY, S_AT, AT, ATSP, ATFP, ATCSP, ATCFP, FETCH,
+	TOP, NIP, ROT, TUCK, SMY, MY, SAT, AT, ATSP, ATFP, ATCSP, ATCFP, FETCH,
 	STORE, PSTORE, CFETCH, CSTORE, CELL, NEG, ADD, SUB, SHL, SHR, MUL, DIV,
 	MOD, AND, OR, XOR, LESS, MORE, EQUAL, NEQUAL, ZEQUAL, ZLESS, ZMORE, MAX,
 	MIN, ADD1, SUB1, SHL1, SHR1, EXECUTE, MOVE, CMOVE, NUMBER, MACRO, NORMAL,
 	VALUE, VARY, CREATE, EMIT, KEY, KEYQ, ALLOCATE, RESIZE, FREE, FORMAT,
 	DEPTH, HERE, ALLOT, COMMA, CCOMMA, CELLS, BYTES, ZNE, PLACE, PICK, ABS,
-	SMOD, TYPE, EVALUATE, COUNT, COMPARE, GETENV, PUTENV, SLURP, BLURT, NOP,
+	SMOD, TYPE, EVALUATE, COUNT, COMPARE, GETENV, PUTENV, SLURP, BLURT,
 	SYS, COLON, SCOLON, IF, ELSE, FOR, BEGIN, END, COM1, COM2, RECORD, FIELD,
 	DOES, ENTER, DOVAL, DOVAR, DOADD, DODOES, LIT_TOK, LIT_NUM, LIT_STR,
 	BRANCH, JUMP, LOOP, ELOOP, MACROS, NORMALS, LATEST, ADDER, HEAD_XT,
 	XT_HEAD, XT_NAME, XT_CODE, XT_BODY, XT_LIST, XT_LINK, PARSE, SPARSE, FIND,
 	FINDPAIR, COMPILE, NCOMPILE, SCOMPILE, MODE, LABEL, REDOES, ONOK, ONWHAT,
 	ONERROR, SOURCE, ERROR, USEC,
+
+	OPT_DUP_SAT, OPT_DUP_SMY, OPT_DUP_WHILE, OPT_DUP_FETCH, OPT_DUP_CFETCH,
+	OPT_DUP_BRANCH,
+	OPT_DROP_DROP, OPT_OVER_OVER,
+	OPT_IDX_ADD, OPT_LIT_NUM_ADD,
 
 #ifdef LIB_SHELL
 	AT_XY, MAX_XY,
@@ -108,7 +113,7 @@ enum {
 	FORK, SELF,
 #endif
 
-	LASTTOKEN
+	NOP, LASTTOKEN
 };
 
 // High-level Forth code in C :-)
@@ -126,7 +131,7 @@ tok high_evaluate[] = {
 			POP, DROP, PUSH,
 			LEAVE,
 
-		PARSE, DUP, S_MY, WHILE, // 4
+		PARSE, DUP, SMY, WHILE, // 4
 
 		MY, CFETCH, LIT_TOK, 34, EQUAL, BRANCH, 18, // 24
 			SOURCE, FETCH, MY, COUNT, SUB, SOURCE, STORE, SPARSE,
@@ -154,7 +159,7 @@ tok high_evaluate[] = {
 		DROP,
 
 		MY, CFETCH, LIT_TOK, 39, EQUAL, BRANCH, 37, // 43
-			MY, ADD1, S_MY,
+			MY, ADD1, SMY,
 
 			MODE, FETCH, BRANCH, 4,
 				LIT_TOK, LIT_TOK, COMPILE,
@@ -220,9 +225,9 @@ wordinit list_normals[] = {
 	{ .token = PUSH,     .name = "push"     },
 	{ .token = POP,      .name = "pop"      },
 	{ .token = TOP,      .name = "top"      },
-	{ .token = S_MY,     .name = "my!"      },
+	{ .token = SMY,     .name = "my!"      },
 	{ .token = MY,       .name = "my"       },
-	{ .token = S_AT,     .name = "at!"      },
+	{ .token = SAT,     .name = "at!"      },
 	{ .token = AT,       .name = "at"       },
 	{ .token = ATSP,     .name = "!+"       },
 	{ .token = ATFP,     .name = "@+"       },
@@ -367,6 +372,16 @@ wordinit list_hiddens[] = {
 	{ .token = ONWHAT,   .name = "on-what"  },
 	{ .token = ONERROR,  .name = "on-error" },
 	{ .token = SOURCE,   .name = "source"   },
+
+	{ .token = OPT_DUP_SMY,     .name = "dup_my!"   },
+	{ .token = OPT_DUP_WHILE,   .name = "dup_while" },
+	{ .token = OPT_DUP_FETCH,   .name = "dup_@"     },
+	{ .token = OPT_DUP_CFETCH,  .name = "dup_c@"    },
+	{ .token = OPT_DROP_DROP,   .name = "drop_drop" },
+	{ .token = OPT_OVER_OVER,   .name = "over_over" },
+	{ .token = OPT_IDX_ADD,     .name = "i+"        },
+	{ .token = OPT_LIT_NUM_ADD, .name = "n+"        },
+	{ .token = OPT_DUP_BRANCH,  .name = "?if"       },
 };
 
 // Some Forth global variables
@@ -429,11 +444,113 @@ blurt(const char *name, char *data, unsigned int dlen)
 	return 1;
 }
 
+tok *compile_last;
+tok *ncompile_last;
+
 // Compile an execution token to code space
 void
 compile(tok n, tok **p)
 {
 	tok *cp = *p;
+	if (compile_last == cp-1)
+	{
+		switch (*compile_last)
+		{
+			case DUP:
+				switch (n)
+				{
+					// dup at!
+					case SAT:
+						*compile_last = OPT_DUP_SAT;
+						return;
+
+					// dup my!
+					case SMY:
+						*compile_last = OPT_DUP_SMY;
+						return;
+
+					// dup while
+					case WHILE:
+						*compile_last = OPT_DUP_WHILE;
+						return;
+
+					// dup @
+					case FETCH:
+						*compile_last = OPT_DUP_FETCH;
+						return;
+
+					// dup c@
+					case CFETCH:
+						*compile_last = OPT_DUP_CFETCH;
+						return;
+
+					// dup if
+					case BRANCH:
+						*compile_last = OPT_DUP_BRANCH;
+						return;
+				}
+				break;
+
+			case SAT:
+				switch (n)
+				{
+					// at! at
+					case AT:
+						*compile_last = OPT_DUP_SAT;
+						return;
+				}
+				break;
+
+			case SMY:
+				switch (n)
+				{
+					// my! my
+					case MY:
+						*compile_last = OPT_DUP_SMY;
+						return;
+				}
+				break;
+
+			case DROP:
+				switch (n)
+				{
+					// drop drop
+					case DROP:
+						*compile_last = OPT_DROP_DROP;
+						return;
+				}
+
+			case OVER:
+				switch (n)
+				{
+					// over over
+					case OVER:
+						*compile_last = OPT_OVER_OVER;
+						return;
+				}
+
+			case IDX:
+				switch (n)
+				{
+					// i +
+					case ADD:
+						*compile_last = OPT_IDX_ADD;
+						return;
+				}
+
+		}
+	}
+	if (compile_last == (tok*)(((char*)cp) - sizeof(cell) - sizeof(tok)) && *compile_last == LIT_NUM)
+	{
+		switch (n)
+		{
+			// <n> +
+			case ADD:
+				*compile_last = OPT_LIT_NUM_ADD;
+				return;
+		}
+	}
+	compile_last = cp;
 	*cp++ = n;
 	*p = cp;
 }
@@ -443,6 +560,7 @@ void
 ncompile(cell n, tok **p)
 {
 	tok *cp = *p;
+	ncompile_last = cp;
 	*((cell*)cp) = n;
 	cp = (tok*)(((char*)cp) + sizeof(cell));
 	*p = cp;
@@ -561,6 +679,8 @@ label(word **p)
 	w->subs = w;
 	*current = w;
 	*p = hp;
+	compile_last = NULL;
+	ncompile_last = NULL;
 	return w-head;
 }
 
@@ -849,6 +969,68 @@ void catch_exit(int sig)
 
 #endif
 
+#ifdef DEBUG
+
+tok debug_lastxt;
+int debug_counts[MAXTOKEN * MAXTOKEN];
+
+void
+debug_start()
+{
+	int i;
+	for (i = 1; i < LASTTOKEN; i++)
+	{
+		if (!call[i])
+			fprintf(stderr, "TODO: %d %s\n", i, head[i].name);
+	}
+}
+
+void
+debug_next(tok *ip)
+{
+	debug_counts[(debug_lastxt * MAXTOKEN) + *ip]++;
+	debug_lastxt = *ip;
+}
+
+void
+debug_stop()
+{
+	int i, j, maxcalls = 0, threshold = 0;
+
+	for (i = BYE; i < NOP; i++)
+	{
+		if (!head[i].name) continue;
+		int calls = 0;
+		for (j = BYE; j < NOP; j++)
+			if (debug_counts[(j * MAXTOKEN) + i])
+				calls += debug_counts[(j * MAXTOKEN) + i];
+		if (calls > maxcalls)
+			maxcalls = calls;
+	}
+
+	threshold = maxcalls / 100;
+
+	for (i = BYE; i < NOP; i++)
+	{
+		if (!head[i].name) continue;
+		int calls = 0;
+		for (j = BYE; j < MAXTOKEN; j++)
+			calls += debug_counts[(j * MAXTOKEN) + i];
+		if (calls < 2) continue;
+//		if (calls < threshold) continue;
+		fprintf(stderr, "%10s   %d\n\n", head[i].name, calls);
+		for (j = BYE; j < NOP; j++)
+		{
+			if (debug_counts[(i * MAXTOKEN) + j])
+//			if (debug_counts[(i * MAXTOKEN) + j] > threshold)
+				fprintf(stderr, "%25s   %d\n", head[j].name, debug_counts[(i * MAXTOKEN) + j]);
+		}
+		fprintf(stderr, "\n");
+	}
+}
+
+#endif
+
 tok init[] = { EVALUATE, BYE };
 
 #include "src_base.c"
@@ -1107,6 +1289,17 @@ main(int argc, char *argv[], char *env[])
 		dsp--;
 	NEXT
 
+	CODE(OPT_OVER_OVER)
+		tmp = dsp[-1];
+		dpush(tos);
+		dpush(tmp);
+	NEXT
+
+	CODE(OPT_DROP_DROP)
+		dsp--;
+		tos = dpop;
+	NEXT
+
 	// ( n m o -- m o n )
 	CODE(ROT)
 		tmp = dsp[-2];
@@ -1141,9 +1334,14 @@ main(int argc, char *argv[], char *env[])
 	NEXT
 
 	// ( n -- )
-	CODE(S_MY)
+	CODE(SMY)
 		rsp[-1] = tos;
 		tos = dpop;
+	NEXT
+
+	// ( n -- n )
+	CODE(OPT_DUP_SMY)
+		rsp[-1] = tos;
 	NEXT
 
 	// ( -- n )
@@ -1153,9 +1351,14 @@ main(int argc, char *argv[], char *env[])
 	NEXT
 
 	// ( a -- )
-	CODE(S_AT)
+	CODE(SAT)
 		rsp[-2] = tos;
 		tos = dpop;
+	NEXT
+
+	// ( a -- a )
+	CODE(OPT_DUP_SAT)
+		rsp[-2] = tos;
 	NEXT
 
 	// ( -- a )
@@ -1209,6 +1412,12 @@ main(int argc, char *argv[], char *env[])
 		ip = (tok*)(((char*)ip) + sizeof(cell));
 	NEXT
 
+	// ( -- n )
+	CODE(OPT_LIT_NUM_ADD)
+		tos += *((cell*)ip);
+		ip = (tok*)(((char*)ip) + sizeof(cell));
+	NEXT
+
 	// ( -- a )
 	CODE(LIT_STR)
 		dpush(tos);
@@ -1220,6 +1429,11 @@ main(int argc, char *argv[], char *env[])
 	CODE(BRANCH)
 		ip += tos ? 1: *ip;
 		tos = dpop;
+	NEXT
+
+	// ( f -- )
+	CODE(OPT_DUP_BRANCH)
+		ip += tos ? 1: *ip;
 	NEXT
 
 	// ( -- )
@@ -1272,6 +1486,11 @@ main(int argc, char *argv[], char *env[])
 		tos = rsp[-4];
 	NEXT
 
+	// ( -- i )
+	CODE(OPT_IDX_ADD)
+		tos += rsp[-4];
+	NEXT
+
 	// ( -- )
 	CODE(LEAVE)
 		ip = (tok*)(rsp[-6]);
@@ -1296,6 +1515,12 @@ main(int argc, char *argv[], char *env[])
 			goto code_LEAVE;
 	NEXT
 
+	// ( f -- f )
+	CODE(OPT_DUP_WHILE)
+		if (!tos)
+			goto code_LEAVE;
+	NEXT
+
 	// ( f -- )
 	CODE(UNTIL)
 		tmp = tos;
@@ -1306,6 +1531,12 @@ main(int argc, char *argv[], char *env[])
 
 	// ( a -- n )
 	CODE(FETCH)
+		tos = *((cell*)tos);
+	NEXT
+
+	// ( a -- n )
+	CODE(OPT_DUP_FETCH)
+		dpush(tos);
 		tos = *((cell*)tos);
 	NEXT
 
@@ -1323,6 +1554,12 @@ main(int argc, char *argv[], char *env[])
 
 	// ( -- c )
 	CODE(CFETCH)
+		tos = *((char*)tos);
+	NEXT
+
+	// ( -- c )
+	CODE(OPT_DUP_CFETCH)
+		dpush(tos);
 		tos = *((char*)tos);
 	NEXT
 
@@ -1853,11 +2090,11 @@ main(int argc, char *argv[], char *env[])
 	// ( -- a n )
 	CODE(IF)
 		dpush(tos);
-		if (!mode)
-			dpush((cell)cp);
-		mode++;
 		compile(BRANCH, &cp);
+		if (!mode)
+			dpush((cell)(cp-1));
 		dpush((cell)mark(&cp));
+		mode++;
 		tos = 1;
 	NEXT
 
@@ -2092,13 +2329,9 @@ main(int argc, char *argv[], char *env[])
 	NEXT
 
 #ifdef DEBUG
-	for (i = 1; i < LASTTOKEN; i++)
-	{
-		if (!call[i])
-			fprintf(stderr, "TODO: %d %s\n", i, head[i].name);
-	}
-
+	debug_start();
 	next:
+		debug_next(ip);
 #endif
 
 	// Finally, jump into Forth!
@@ -2109,6 +2342,10 @@ main(int argc, char *argv[], char *env[])
 #ifdef LIB_SHELL
 	if (isatty(STDIN_FILENO))
 		tcsetattr(STDIN_FILENO, TCSANOW, &old_tio);
+#endif
+
+#ifdef DEBUG
+	debug_stop();
 #endif
 
 	return tos;
