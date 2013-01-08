@@ -3,7 +3,7 @@ CFLAGS?=-Wall -O3 -g
 normal:
 	$(CC) -o fstoc fstoc.c $(CFLAGS)
 	./fstoc base.fs
-	$(CC) -DDEBUG -DLIB_SHELL -DLIB_REGEX -DLIB_FORK $(CFLAGS) -o reforth reforth.c
+	$(CC) -DLIB_SHELL -DLIB_REGEX -DLIB_FORK $(CFLAGS) -o reforth reforth.c
 	objdump -d reforth >reforth.dump
 
 compare:

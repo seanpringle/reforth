@@ -14,9 +14,6 @@
 : rtrim ( s -- s )
 	dup if dup "\s*$" split drop drop end ;
 
-: chomp ( s -- s c )
-	dup if dup dup dup count + 1- max dup c@ 0 rot c! else 0 end ;
-
 : color ( r g b -- )
 	create swap rot , , , does
 		at! @+ @+ @+ ;
@@ -93,7 +90,7 @@ create escseq 100 allot
 
 : sane_range ( n m -- n' m' )
 	: bounds ( n -- n' )
-		0 max lines.size @ 1- min ;
+		lines.size @ 1- min 0 max ;
 	push bounds pop bounds over max ;
 
 : import ( text line -- )
@@ -115,7 +112,7 @@ create escseq 100 allot
 		dup i + lines.get
 		at place+ at! 10 c!+
 	end
-	drop chomp drop ;
+	drop 0 over at 1- max c! ;
 
 : escape ( jump -- flag )
 	0 50
@@ -135,7 +132,7 @@ create escseq 100 allot
 			drop
 		end my!
 	end
-	0 c!+ escseq 10 dump my
+	0 c!+ my
 	swap array:get execute true ;
 
 : skip_spaces ( a -- a' )
@@ -696,6 +693,14 @@ create escseq 100 allot
 : command ( -- )
 	listen if tib evaluate drop end display ;
 
+10 array undo
+
+: snapshot ( -- )
+	9 undo.get free 0 lines.size @ export 0 undo.ins ;
+
+: rollback ( -- )
+	0 undo.del dup if close dup 0 import words_array end free ;
+
 : file_edit ( -- )
 
 	record local
@@ -754,8 +759,47 @@ create escseq 100 allot
 			exit
 		end ;
 
-	: line_iedit ( -- )
-		line_insert line_edit ;
+	: k_edit ( -- )
+		snapshot line_edit ;
+
+	: kl_edit ( -- )
+		snapshot line_insert line_edit ;
+
+	: k_delete ( -- )
+		snapshot word_delete ;
+
+	: k_paste ( -- )
+		snapshot word_paste ;
+
+	: k_wleft ( -- )
+		snapshot word_left ;
+
+	: k_wright ( -- )
+		snapshot word_right ;
+
+	: k_indent ( -- )
+		snapshot word_indent ;
+
+	: k_dedent ( -- )
+		snapshot word_dedent ;
+
+	: kl_indent ( -- )
+		snapshot line_indent ;
+
+	: kl_insert ( -- )
+		snapshot line_insert ;
+
+	: kl_delete ( -- )
+		snapshot line_delete ;
+
+	: kl_paste ( -- )
+		snapshot line_paste ;
+
+	: kl_split ( -- )
+		snapshot line_split ;
+
+	: kl_join ( -- )
+		snapshot line_join ;
 
 	'k_up    65 ekeys.set
 	'k_down  66 ekeys.set
@@ -766,24 +810,25 @@ create escseq 100 allot
 	'k_move 126 ekeys.set
 
 	'command       58 keys.set \ :
-	'line_edit    105 keys.set \ i
+	'rollback     117 keys.set \ u
+	'k_edit       105 keys.set \ i
 	'word_yank     99 keys.set \ c
-	'word_delete  120 keys.set \ x
-	'word_paste   118 keys.set \ v
-	'word_left     45 keys.set \ -
-	'word_right    43 keys.set \ +
-	'word_indent   32 keys.set \ space
-	'word_dedent  127 keys.set \ bkspc
+	'k_delete     120 keys.set \ x
+	'k_paste      118 keys.set \ v
+	'k_wleft       45 keys.set \ -
+	'k_wright      43 keys.set \ +
+	'k_indent      32 keys.set \ space
+	'k_dedent     127 keys.set \ bkspc
 	'word_find    102 keys.set \ f
 	'word_next    110 keys.set \ n
-	'line_indent    9 keys.set \ tab
-	'line_insert   10 keys.set \ enter
-	'line_iedit   111 keys.set \ o
+	'kl_indent      9 keys.set \ tab
+	'kl_insert     10 keys.set \ enter
+	'kl_edit      111 keys.set \ o
 	'line_yank    121 keys.set \ y
-	'line_delete  100 keys.set \ d
-	'line_paste   112 keys.set \ p
-	'line_split   115 keys.set \ s
-	'line_join    106 keys.set \ j
+	'kl_delete    100 keys.set \ d
+	'kl_paste     112 keys.set \ p
+	'kl_split     115 keys.set \ s
+	'kl_join      106 keys.set \ j
 
 	begin
 		display key my!
@@ -800,12 +845,12 @@ create escseq 100 allot
 	true cursor plain bye ;
 
 : w file write ;
-: q quit ;
+: q plain page quit ;
 : wq w q ;
 : g edit - line_jump ;
 : y export yank_line! ;
-: d over over y lines_delete ;
-: p lines_paste ;
+: d over over y snapshot lines_delete ;
+: p snapshot lines_paste ;
 
-"editor.fs" open
+1 arg if 1 arg open end
 page false wrap file_edit

@@ -79,7 +79,7 @@ typedef struct _word {
 
 enum {
 	// codewords
-	BYE=1, EXIT,
+	BYE=1, EXIT, ARG,
 
 	IDX, LEAVE, CONT, WHILE, UNTIL, DUP, DROP, OVER, SWAP, PUSH, POP,
 	TOP, NIP, ROT, TUCK, SMY, MY, SAT, AT, ATSP, ATFP, ATCSP, ATCFP, FETCH,
@@ -100,6 +100,10 @@ enum {
 	OPT_DUP_BRANCH,
 	OPT_DROP_DROP, OPT_OVER_OVER,
 	OPT_IDX_ADD, OPT_LIT_NUM_ADD,
+
+#ifdef DEBUG
+	SLOW, FAST,
+#endif
 
 #ifdef LIB_SHELL
 	AT_XY, MAX_XY,
@@ -209,6 +213,7 @@ typedef struct {
 
 wordinit list_normals[] = {
 	{ .token = BYE,      .name = "bye"      },
+	{ .token = ARG,      .name = "arg"      },
 	{ .token = EXIT,     .name = "exit"     },
 	{ .token = IDX,      .name = "i"        },
 	{ .token = LEAVE,    .name = "leave"    },
@@ -225,9 +230,9 @@ wordinit list_normals[] = {
 	{ .token = PUSH,     .name = "push"     },
 	{ .token = POP,      .name = "pop"      },
 	{ .token = TOP,      .name = "top"      },
-	{ .token = SMY,     .name = "my!"      },
+	{ .token = SMY,      .name = "my!"      },
 	{ .token = MY,       .name = "my"       },
-	{ .token = SAT,     .name = "at!"      },
+	{ .token = SAT,      .name = "at!"      },
 	{ .token = AT,       .name = "at"       },
 	{ .token = ATSP,     .name = "!+"       },
 	{ .token = ATFP,     .name = "@+"       },
@@ -373,6 +378,11 @@ wordinit list_hiddens[] = {
 	{ .token = ONERROR,  .name = "on-error" },
 	{ .token = SOURCE,   .name = "source"   },
 
+#ifdef DEBUG
+	{ .token = SLOW,     .name = "slow"     },
+	{ .token = FAST,     .name = "fast"     },
+#endif
+
 	{ .token = OPT_DUP_SMY,     .name = "dup_my!"   },
 	{ .token = OPT_DUP_WHILE,   .name = "dup_while" },
 	{ .token = OPT_DUP_FETCH,   .name = "dup_@"     },
@@ -452,6 +462,7 @@ void
 compile(tok n, tok **p)
 {
 	tok *cp = *p;
+#ifndef DEBUG
 	if (compile_last == cp-1)
 	{
 		switch (*compile_last)
@@ -550,6 +561,7 @@ compile(tok n, tok **p)
 				return;
 		}
 	}
+#endif
 	compile_last = cp;
 	*cp++ = n;
 	*p = cp;
@@ -1017,12 +1029,12 @@ debug_stop()
 		for (j = BYE; j < MAXTOKEN; j++)
 			calls += debug_counts[(j * MAXTOKEN) + i];
 		if (calls < 2) continue;
-//		if (calls < threshold) continue;
+		if (calls < threshold) continue;
 		fprintf(stderr, "%10s   %d\n\n", head[i].name, calls);
 		for (j = BYE; j < NOP; j++)
 		{
 			if (debug_counts[(i * MAXTOKEN) + j])
-//			if (debug_counts[(i * MAXTOKEN) + j] > threshold)
+			if (debug_counts[(i * MAXTOKEN) + j] > (threshold/2))
 				fprintf(stderr, "%25s   %d\n", head[j].name, debug_counts[(i * MAXTOKEN) + j]);
 		}
 		fprintf(stderr, "\n");
@@ -1050,9 +1062,9 @@ tok init[] = { EVALUATE, BYE };
 int
 main(int argc, char *argv[], char *env[])
 {
-	cell ds[32]; // Data stack
-	cell rs[32]; // Return stack
-	cell as[32]; // Alternate data stack (PUSH, POP, TOP)
+	cell ds[64]; // Data stack
+	cell rs[64]; // Return stack
+	cell as[64]; // Alternate data stack (PUSH, POP, TOP)
 
 	// Both these variables are used in NEXT and should have first-dibs on being in
 	// a register. The C compiler is free to ignore the "register" keyword, but some
@@ -1073,6 +1085,10 @@ main(int argc, char *argv[], char *env[])
 	cell index, limit, src, dst;
 	word *w, *hp;
 	void *voidp;
+
+#ifdef DEBUG
+	int single = 0;
+#endif
 
 #ifdef LIB_SHELL
 	struct termios old_tio, new_tio;
@@ -1214,6 +1230,10 @@ main(int argc, char *argv[], char *env[])
 		goto shutdown;
 	NEXT
 
+	CODE(ARG)
+		tos = tos < argc && tos >= 0 ? (cell)(argv[tos]): 0;
+	NEXT
+
 	// ( -- )
 	CODE(ENTER)
 		*rsp = (cell)ip;
@@ -1257,9 +1277,21 @@ main(int argc, char *argv[], char *env[])
 		*rsp = (cell)ip;
 		rsp += 3;
 		dpush(tos);
-		tos = ((cell*)(body[xt]))[0];
-		ip = (tok*)(((cell*)(body[xt]))[1]);
+		tos = ((cell*)body[xt])[0];
+		ip = (tok*)((cell*)body[xt])[1];
 	NEXT
+
+#ifdef DEBUG
+	// ( -- )
+	CODE(SLOW)
+		single = 1;
+	NEXT
+
+	// ( -- )
+	CODE(FAST)
+		single = 0;
+	NEXT
+#endif
 
 	// ( n -- n n )
 	CODE(DUP)
@@ -2332,6 +2364,18 @@ main(int argc, char *argv[], char *env[])
 	debug_start();
 	next:
 		debug_next(ip);
+		if (single)
+		{
+			// single step debugger
+			fprintf(stderr, "\nD: %lld ", (long long)tos);
+			for (i = -1; dsp+i+1 > ds+3 && i > -10; i--)
+				fprintf(stderr, "%lld ", (long long)dsp[i]);
+			fprintf(stderr, "\nA: ");
+			for (i = -1; asp+i+1 > as+3 && i > -10; i--)
+				fprintf(stderr, "%lld ", (long long)asp[i]);
+			fprintf(stderr, "\n%s", head[*ip].name);
+			key();
+		}
 #endif
 
 	// Finally, jump into Forth!
