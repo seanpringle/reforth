@@ -36,6 +36,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <poll.h>
 
 #ifdef LIB_REGEX
 #include <regex.h>
@@ -48,7 +49,10 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #ifdef LIB_SHELL
 #include <termios.h>
 #include <sys/ioctl.h>
-#include <poll.h>
+#endif
+
+#ifdef LIB_MYSQL
+#include <mysql/mysql.h>
 #endif
 
 /*
@@ -79,7 +83,7 @@ typedef struct _word {
 
 enum {
 	// codewords
-	BYE=1, EXIT, ARG,
+	BYE=1, EXIT, ARG, TAIL, GOTO,
 
 	IDX, LEAVE, CONT, WHILE, UNTIL, DUP, DROP, OVER, SWAP, PUSH, POP,
 	TOP, NIP, ROT, TUCK, SMY, MY, SAT, AT, ATSP, ATFP, ATCSP, ATCFP, FETCH,
@@ -88,7 +92,7 @@ enum {
 	MIN, ADD1, SUB1, SHL1, SHR1, EXECUTE, MOVE, CMOVE, NUMBER, MACRO, NORMAL,
 	VALUE, VARY, CREATE, EMIT, KEY, KEYQ, ALLOCATE, RESIZE, FREE, FORMAT,
 	DEPTH, HERE, ALLOT, COMMA, CCOMMA, CELLS, BYTES, ZNE, PLACE, PICK, ABS,
-	SMOD, TYPE, EVALUATE, COUNT, COMPARE, GETENV, PUTENV, SLURP, BLURT,
+	SMOD, TYPE, EVALUATE, COUNT, COMPARE, GETENV, PUTENV, SLURP, BLURT, CORE,
 	SYS, COLON, SCOLON, IF, ELSE, FOR, BEGIN, END, COM1, COM2, RECORD, FIELD,
 	DOES, ENTER, DOVAL, DOVAR, DOADD, DODOES, LIT_TOK, LIT_NUM, LIT_STR,
 	BRANCH, JUMP, LOOP, ELOOP, MACROS, NORMALS, LATEST, ADDER, HEAD_XT,
@@ -96,9 +100,7 @@ enum {
 	FINDPAIR, COMPILE, NCOMPILE, SCOMPILE, MODE, LABEL, REDOES, ONOK, ONWHAT,
 	ONERROR, SOURCE, ERROR, USEC,
 
-	OPT_DUP_SAT, OPT_DUP_SMY, OPT_DUP_WHILE, OPT_DUP_FETCH, OPT_DUP_CFETCH,
-	OPT_DUP_BRANCH,
-	OPT_DROP_DROP, OPT_OVER_OVER,
+	OPT_DUP_SAT, OPT_DUP_SMY, OPT_DUP_WHILE, OPT_DUP_UNTIL, OPT_DUP_BRANCH,
 	OPT_IDX_ADD, OPT_LIT_NUM_ADD,
 
 #ifdef DEBUG
@@ -117,92 +119,12 @@ enum {
 	FORK, SELF,
 #endif
 
+#ifdef LIB_MYSQL
+	MYSQL_CONNECT, MYSQL_CLOSE, MYSQL_QUERY, MYSQL_FETCH, MYSQL_ESCAPE,
+	MYSQL_FIELDS, MYSQL_FREE,
+#endif
+
 	NOP, LASTTOKEN
-};
-
-// High-level Forth code in C :-)
-// It's almost readable...
-
-tok high_evaluate[] = {
-	SOURCE, FETCH, PUSH, SOURCE, STORE,
-	LIT_TOK, -1, PUSH,
-	LIT_TOK, -1, LOOP, 178, // 1
-
-		DEPTH, ZLESS, BRANCH, 24, // 27
-			DEPTH, ABS, LOOP, 4, LIT_TOK, 0, ELOOP,
-			LIT_TOK, 0, ONERROR, FETCH, BRANCH, 7,
-				DROP, LIT_TOK, 1, ONERROR, FETCH, EXECUTE,
-			POP, DROP, PUSH,
-			LEAVE,
-
-		PARSE, DUP, SMY, WHILE, // 4
-
-		MY, CFETCH, LIT_TOK, 34, EQUAL, BRANCH, 18, // 24
-			SOURCE, FETCH, MY, COUNT, SUB, SOURCE, STORE, SPARSE,
-			MODE, FETCH, BRANCH, 5,
-				LIT_TOK, LIT_STR, COMPILE, SCOMPILE,
-			CONT,
-
-		MY, MACROS, FIND, DUP, BRANCH, 3, // 9
-			EXECUTE,
-			CONT,
-		DROP,
-
-		MY, NORMALS, FIND, DUP, BRANCH, 10, // 16
-			MODE, FETCH, BRANCH, 4,
-				COMPILE,
-			JUMP, 2,
-				EXECUTE,
-			CONT,
-		DROP,
-
-		MY, NUMBER, BRANCH, 10, // 14
-			MODE, FETCH, BRANCH, 5,
-				LIT_TOK, LIT_NUM, COMPILE, NCOMPILE,
-			CONT,
-		DROP,
-
-		MY, CFETCH, LIT_TOK, 39, EQUAL, BRANCH, 37, // 43
-			MY, ADD1, SMY,
-
-			MODE, FETCH, BRANCH, 4,
-				LIT_TOK, LIT_TOK, COMPILE,
-
-			MY, MACROS, FIND, DUP, BRANCH, 7,
-				MODE, FETCH, BRANCH, 2,
-					COMPILE,
-				CONT,
-			DROP,
-
-			MY, NORMALS, FIND, DUP, BRANCH, 7,
-				MODE, FETCH, BRANCH, 2,
-					COMPILE,
-				CONT,
-			DROP,
-
-		MY, NORMALS, FINDPAIR, DUP, BRANCH, 15, // 22
-			MODE, FETCH, BRANCH, 5,
-				COMPILE, COMPILE,
-			JUMP, 6,
-				SWAP, PUSH, EXECUTE, POP, EXECUTE,
-			CONT,
-		DROP, DROP,
-
-		ONWHAT, FETCH, BRANCH, 8, // 11
-			MY, ONWHAT, FETCH, EXECUTE, BRANCH, 2,
-				CONT,
-
-		POP, DROP, LIT_TOK, 0, PUSH, LEAVE, // 6
-
-	ELOOP, // 1
-
-	POP, POP, SOURCE, STORE,
-
-	DUP, BRANCH, 10,
-		ONOK, FETCH, BRANCH, 6,
-			PUSH, ONOK, FETCH, EXECUTE, POP,
-
-	EXIT
 };
 
 typedef struct {
@@ -306,7 +228,12 @@ wordinit list_normals[] = {
 	{ .token = TYPE,     .name = "type"     },
 	{ .token = ERROR,    .name = "error"    },
 	{ .token = USEC,     .name = "usec"     },
-	{ .token = EVALUATE, .name = "evaluate", .high = high_evaluate },
+	{ .token = EVALUATE, .name = "evaluate" },
+
+#ifdef DEBUG
+	{ .token = SLOW,     .name = "slow"     },
+	{ .token = FAST,     .name = "fast"     },
+#endif
 
 #ifdef LIB_SHELL
 	{ .token = AT_XY,    .name = "at-xy"    },
@@ -321,6 +248,16 @@ wordinit list_normals[] = {
 #ifdef LIB_FORK
 	{ .token = FORK,     .name = "fork"     },
 	{ .token = SELF,     .name = "self"     },
+#endif
+
+#ifdef LIB_MYSQL
+	{ .token = MYSQL_CONNECT,   .name = "mysql_connect"   },
+	{ .token = MYSQL_CLOSE,     .name = "mysql_close"     },
+	{ .token = MYSQL_QUERY,     .name = "mysql_query"     },
+	{ .token = MYSQL_FETCH,     .name = "mysql_fetch"     },
+	{ .token = MYSQL_FIELDS,    .name = "mysql_fields"    },
+	{ .token = MYSQL_ESCAPE,    .name = "mysql_escape"    },
+	{ .token = MYSQL_FREE,      .name = "mysql_free"      },
 #endif
 };
 
@@ -378,17 +315,9 @@ wordinit list_hiddens[] = {
 	{ .token = ONERROR,  .name = "on-error" },
 	{ .token = SOURCE,   .name = "source"   },
 
-#ifdef DEBUG
-	{ .token = SLOW,     .name = "slow"     },
-	{ .token = FAST,     .name = "fast"     },
-#endif
-
 	{ .token = OPT_DUP_SMY,     .name = "dup_my!"   },
 	{ .token = OPT_DUP_WHILE,   .name = "dup_while" },
-	{ .token = OPT_DUP_FETCH,   .name = "dup_@"     },
-	{ .token = OPT_DUP_CFETCH,  .name = "dup_c@"    },
-	{ .token = OPT_DROP_DROP,   .name = "drop_drop" },
-	{ .token = OPT_OVER_OVER,   .name = "over_over" },
+	{ .token = OPT_DUP_UNTIL,   .name = "dup_until" },
 	{ .token = OPT_IDX_ADD,     .name = "i+"        },
 	{ .token = OPT_LIT_NUM_ADD, .name = "n+"        },
 	{ .token = OPT_DUP_BRANCH,  .name = "?if"       },
@@ -440,6 +369,7 @@ slurp(char *name)
 		if (read < 1024) break;
 		pad = realloc(pad, lim+1);
 	}
+	pad[len] = 0;
 	fclose(file);
 	return pad;
 }
@@ -462,7 +392,6 @@ void
 compile(tok n, tok **p)
 {
 	tok *cp = *p;
-#ifndef DEBUG
 	if (compile_last == cp-1)
 	{
 		switch (*compile_last)
@@ -485,14 +414,9 @@ compile(tok n, tok **p)
 						*compile_last = OPT_DUP_WHILE;
 						return;
 
-					// dup @
-					case FETCH:
-						*compile_last = OPT_DUP_FETCH;
-						return;
-
-					// dup c@
-					case CFETCH:
-						*compile_last = OPT_DUP_CFETCH;
+					// dup until
+					case UNTIL:
+						*compile_last = OPT_DUP_UNTIL;
 						return;
 
 					// dup if
@@ -522,24 +446,6 @@ compile(tok n, tok **p)
 				}
 				break;
 
-			case DROP:
-				switch (n)
-				{
-					// drop drop
-					case DROP:
-						*compile_last = OPT_DROP_DROP;
-						return;
-				}
-
-			case OVER:
-				switch (n)
-				{
-					// over over
-					case OVER:
-						*compile_last = OPT_OVER_OVER;
-						return;
-				}
-
 			case IDX:
 				switch (n)
 				{
@@ -561,7 +467,6 @@ compile(tok n, tok **p)
 				return;
 		}
 	}
-#endif
 	compile_last = cp;
 	*cp++ = n;
 	*p = cp;
@@ -578,17 +483,22 @@ ncompile(cell n, tok **p)
 	*p = cp;
 }
 
+
 // Compile a counted string to code space
 void
 scompile(char *s, tok **p)
 {
 	tok *cp = *p;
+	// reserve byte for count
 	tok *tokp = cp++;
 	char *d = (char*)cp;
+	// compile string + null terminator
 	while (*s) *d++ = *s++; *d++ = 0;
+	// align code-space pointer afterwards
 	while ((d - (char*)cp) % sizeof(tok)) *d++ = 0;
 	cp = (tok*)d;
-	*tokp = cp - tokp;
+	// update count inclusive of alignment bytes
+	*tokp = ((char*)cp) - ((char*)tokp);
 	*p = cp;
 }
 
@@ -606,7 +516,7 @@ void
 patch(tok *tokp, tok **p)
 {
 	tok *cp = *p;
-	*tokp = cp - tokp;
+	*tokp = (char*)cp - (char*)tokp;
 }
 
 char parsed[1024];
@@ -641,7 +551,7 @@ sparse()
 	free(sparse_bufs[idx]);
 	sparse_bufs[idx] = buf;
 
-	int len = 0; char c, *s = (char*)source+1, e = '"';
+	int len = 0; char c, *s = (char*)source, e = *s++;
 	while ((c = *s++) && len < 1023)
 	{
 		if (c == e)
@@ -981,64 +891,179 @@ void catch_exit(int sig)
 
 #endif
 
-#ifdef DEBUG
+#ifdef LIB_MYSQL
 
-tok debug_lastxt;
-int debug_counts[MAXTOKEN * MAXTOKEN];
-
-void
-debug_start()
+MYSQL*
+// ( dsn -- handle )
+lib_mysql_connect(char *dsn)
 {
-	int i;
-	for (i = 1; i < LASTTOKEN; i++)
-	{
-		if (!call[i])
-			fprintf(stderr, "TODO: %d %s\n", i, head[i].name);
-	}
-}
+	int lusername, lpassword, lhostname, lport;
 
-void
-debug_next(tok *ip)
-{
-	debug_counts[(debug_lastxt * MAXTOKEN) + *ip]++;
-	debug_lastxt = *ip;
-}
+	char *mysqldesc = dsn+8;
+	char *susername = mysqldesc;
+	char *shostname = strchr(susername, '@'); if (shostname) shostname++;
+	char *spassword = strchr(susername, ':'); if (spassword) spassword++;
 
-void
-debug_stop()
-{
-	int i, j, maxcalls = 0, threshold = 0;
-
-	for (i = BYE; i < NOP; i++)
-	{
-		if (!head[i].name) continue;
-		int calls = 0;
-		for (j = BYE; j < NOP; j++)
-			if (debug_counts[(j * MAXTOKEN) + i])
-				calls += debug_counts[(j * MAXTOKEN) + i];
-		if (calls > maxcalls)
-			maxcalls = calls;
+	// allow blank :password
+	if (!spassword) {
+		spassword = shostname;
+		lpassword = 0;
+	} else {
+		lpassword = shostname - spassword - 1;
 	}
 
-	threshold = maxcalls / 100;
+	char *sport  = strchr(shostname, ':'); if (sport) sport++;
+	char *dbname = strchr(shostname, '/'); if (dbname) dbname++;
 
-	for (i = BYE; i < NOP; i++)
+	// allow blank :port
+	if (!sport) {
+		sport = dbname;
+		lport = 0;
+	} else {
+		lport = dbname - sport - 1;
+	}
+
+	lusername = spassword - susername - 1;
+	lhostname = sport     - shostname - 1;
+
+	char *username  = malloc(lusername+1);
+	char *password  = malloc(lpassword+1);
+	char *hostname  = malloc(lhostname+1);
+	strncpy(username, susername, lusername);
+	username[lusername] = '\0';
+	strncpy(password, spassword, lpassword);
+	password[lpassword] = '\0';
+	strncpy(hostname, shostname, lhostname);
+	hostname[lhostname] = '\0';
+
+	unsigned int port = 0;
+	if (lport)
 	{
-		if (!head[i].name) continue;
-		int calls = 0;
-		for (j = BYE; j < MAXTOKEN; j++)
-			calls += debug_counts[(j * MAXTOKEN) + i];
-		if (calls < 2) continue;
-		if (calls < threshold) continue;
-		fprintf(stderr, "%10s   %d\n\n", head[i].name, calls);
-		for (j = BYE; j < NOP; j++)
+		char bport[6];
+		strncpy(bport, sport, lport);
+		bport[lport] = '\0';
+		port = atoi(bport);
+	}
+
+	MYSQL *mysql = mysql_init(NULL);
+
+	if (!mysql_real_connect(mysql, hostname, username, password, dbname, port, NULL, 0))
+	{
+		fprintf(stderr, "mysql_real_connect: %s", mysql_error(mysql));
+		mysql = NULL;
+	}
+	else
+	if (mysql_set_character_set(mysql, "utf8") != 0)
+	{
+		fprintf(stderr, "mysql_set_character_set: %s", mysql_error(mysql));
+		mysql_close(mysql);
+		mysql = NULL;
+	}
+
+	free(username);
+	free(password);
+	free(hostname);
+
+	return mysql;
+}
+
+MYSQL_RES*
+// ( sql -- selected|affected rs )
+lib_mysql_query(MYSQL *mysql, char *sql, unsigned long long *rows)
+{
+	*rows = 0;
+
+	if (mysql_real_query(mysql, sql, strlen(sql)) != 0)
+	{
+		fprintf(stderr, "mysql_real_query: %s", mysql_error(mysql));
+		return 0;
+	}
+
+	MYSQL_RES *res = mysql_store_result(mysql);
+
+	if (!res)
+	{
+		// could be statement without results, eg INSERT
+		if (mysql_field_count(mysql) != 0)
 		{
-			if (debug_counts[(i * MAXTOKEN) + j])
-			if (debug_counts[(i * MAXTOKEN) + j] > (threshold/2))
-				fprintf(stderr, "%25s   %d\n", head[j].name, debug_counts[(i * MAXTOKEN) + j]);
+			fprintf(stderr, "mysql_store_result: %s", mysql_error(mysql));
+			return 0;
 		}
-		fprintf(stderr, "\n");
+		*rows = mysql_affected_rows(mysql);
+		return NULL;
 	}
+	else
+	{
+		*rows = mysql_num_rows(res);
+		return res;
+	}
+}
+
+unsigned char*
+// ( rs -- addr )
+lib_mysql_fetch(MYSQL_RES *res, unsigned long long index)
+{
+	if (index > mysql_num_rows(res))
+	{
+		fprintf(stderr, "invalid mysql result index: %lld", index);
+		return NULL;
+	}
+
+	mysql_data_seek(res, index);
+	MYSQL_ROW row = mysql_fetch_row(res);
+
+	unsigned int cols = mysql_num_fields(res);
+	unsigned long *lengths = mysql_fetch_lengths(res);
+	MYSQL_FIELD *fields = mysql_fetch_fields(res);
+
+	int len = 0;
+	unsigned char *data = calloc(1024, 1);
+
+	int i;
+	for (i = 0; i < cols; i++)
+	{
+		data = realloc(data, len + lengths[i] + sizeof(cell) + 2);
+
+		unsigned char *flags = data + len;
+		data[len++] = 0;
+
+		*((cell*)(data + len)) = lengths[i];
+		len += sizeof(cell);
+
+		if (!row[i])
+			*flags |= 1; // null
+		else
+		{
+			memmove(data + len, row[i], lengths[i]);
+			len += lengths[i];
+		}
+
+		if (fields[i].type == MYSQL_TYPE_BLOB)
+			*flags |= 2;
+
+		data[len++] = 0;
+	}
+	return data;
+}
+
+char*
+lib_mysql_fields(MYSQL_RES *res, unsigned int *cols)
+{
+	*cols = mysql_num_fields(res);
+	MYSQL_FIELD *fields = mysql_fetch_fields(res);
+
+	int len = 0;
+	char *data = calloc(1024, 1);
+
+	int i;
+	for (i = 0; i < *cols; i++)
+	{
+		int flen = strlen(fields[i].name);
+		data = realloc(data, len + flen+1);
+		strcpy(data + len, fields[i].name);
+		len += flen+1;
+	}
+	return data;
 }
 
 #endif
@@ -1049,6 +1074,9 @@ tok init[] = { EVALUATE, BYE };
 
 // Use GCC's &&label syntax to find code word adresses.
 #define CODE(x) call[(x)] = &&code_##x; if (0) { code_##x:
+
+// Framework to execute a Forth word from inside a CODE block (mainly for EVALUATE)
+#define IEXECUTE(x,l) do { iexec[0] = (x); iexec[1] = GOTO; *rsp++ = (cell)&&iexec_##l; *rsp++ = (cell)ip; ip = iexec; INEXT } while(0); iexec_##l:
 
 // Inline NEXT
 #define INEXT xt = *ip++; goto *call[xt];
@@ -1065,6 +1093,7 @@ main(int argc, char *argv[], char *env[])
 	cell ds[64]; // Data stack
 	cell rs[64]; // Return stack
 	cell as[64]; // Alternate data stack (PUSH, POP, TOP)
+	cell ls[64]; // Loop stack
 
 	// Both these variables are used in NEXT and should have first-dibs on being in
 	// a register. The C compiler is free to ignore the "register" keyword, but some
@@ -1077,14 +1106,28 @@ main(int argc, char *argv[], char *env[])
 	cell *dsp; // Data stack pointer
 	cell *rsp; // Return stack pointer
 	cell *asp; // Alternate data stack pointer
+	cell *lsp; // Loop stack pointer
 
 	int i, j;
-	tok *tokp, exec[2], *cp;
+	tok *tokp, exec[2], iexec[2], *cp, xt1, xt2;
 	cell *cellp, tmp, tos, num;
 	char *charp, *s1, *s2, c;
 	cell index, limit, src, dst;
 	word *w, *hp;
 	void *voidp;
+
+#define RSP_MY  -1
+#define RSP_AT  -2
+#define RSP_LSP -3
+#define RSP_IP  -4
+#define RSP_NEST 4
+
+#define LSP_IDX -1
+#define LSP_LIM -2
+#define LSP_IP  -3
+#define LSP_NEST 3
+
+#define ip_jmp ip = (tok*)(((char*)ip) + *ip)
 
 #ifdef DEBUG
 	int single = 0;
@@ -1103,6 +1146,10 @@ main(int argc, char *argv[], char *env[])
 		new_tio.c_cc[VMIN] = 1;
 		tcsetattr(STDIN_FILENO, TCSANOW, &new_tio);
 	}
+#endif
+
+#ifdef LIB_MYSQL
+	unsigned long long rows;
 #endif
 
 	// Assume the last command line argument is our Forth source file
@@ -1125,6 +1172,15 @@ main(int argc, char *argv[], char *env[])
 
 	word *last = NULL;
 
+	hp = &head[CORE];
+	word *core = hp;
+	hp->name = "core";
+	call[hp-head] = &&code_NOP;
+	hp->subs = hp;
+	hp->prev = last;
+	last = hp;
+	hp++;
+
 	for (i = 0; i < sizeof(list_normals)/sizeof(wordinit); i++)
 	{
 		hp = &head[list_normals[i].token];
@@ -1138,6 +1194,8 @@ main(int argc, char *argv[], char *env[])
 		hp->prev = last;
 		last = hp;
 	}
+
+	core->subs = last;
 
 	hp = &head[SYS];
 	word *sys = hp;
@@ -1194,6 +1252,7 @@ main(int argc, char *argv[], char *env[])
 	dsp = ds+3;
 	rsp = rs+3;
 	asp = as+3;
+	lsp = ls+3;
 	ip = init;
 
 	// Look for a Forth source file on the command line
@@ -1209,6 +1268,7 @@ main(int argc, char *argv[], char *env[])
 			strcat(fsrc, "\n");
 			strcat(fsrc, pad);
 		}
+		free(pad);
 	}
 	else
 	{
@@ -1236,15 +1296,17 @@ main(int argc, char *argv[], char *env[])
 
 	// ( -- )
 	CODE(ENTER)
-		*rsp = (cell)ip;
-		rsp += 3;
+		rsp += RSP_NEST;
+		rsp[RSP_IP]  = (cell)ip;
+		rsp[RSP_LSP] = (cell)lsp;
 		ip = body[xt];
 	NEXT
 
 	// ( -- )
 	CODE(EXIT)
-		rsp -= 3;
-		ip = (tok*)*rsp;
+		ip = (tok*)rsp[RSP_IP];
+		lsp = (cell*)rsp[RSP_LSP];
+		rsp -= RSP_NEST;
 	NEXT
 
 	// ( xt -- )
@@ -1274,11 +1336,24 @@ main(int argc, char *argv[], char *env[])
 
 	// ( -- a )
 	CODE(DODOES)
-		*rsp = (cell)ip;
-		rsp += 3;
+		rsp += RSP_NEST;
+		rsp[RSP_IP]  = (cell)ip;
+		rsp[RSP_LSP] = (cell)lsp;
 		dpush(tos);
 		tos = ((cell*)body[xt])[0];
 		ip = (tok*)((cell*)body[xt])[1];
+	NEXT
+
+	// ( -- )
+	CODE(TAIL)
+		ip = body[*ip];
+	NEXT
+
+	// ( -- )
+	CODE(GOTO)
+		ip = (tok*)(*--rsp);
+		voidp = (void*)(*--rsp);
+		goto *voidp;
 	NEXT
 
 #ifdef DEBUG
@@ -1321,17 +1396,6 @@ main(int argc, char *argv[], char *env[])
 		dsp--;
 	NEXT
 
-	CODE(OPT_OVER_OVER)
-		tmp = dsp[-1];
-		dpush(tos);
-		dpush(tmp);
-	NEXT
-
-	CODE(OPT_DROP_DROP)
-		dsp--;
-		tos = dpop;
-	NEXT
-
 	// ( n m o -- m o n )
 	CODE(ROT)
 		tmp = dsp[-2];
@@ -1367,68 +1431,68 @@ main(int argc, char *argv[], char *env[])
 
 	// ( n -- )
 	CODE(SMY)
-		rsp[-1] = tos;
+		rsp[RSP_MY] = tos;
 		tos = dpop;
 	NEXT
 
 	// ( n -- n )
 	CODE(OPT_DUP_SMY)
-		rsp[-1] = tos;
+		rsp[RSP_MY] = tos;
 	NEXT
 
 	// ( -- n )
 	CODE(MY)
 		dpush(tos);
-		tos = rsp[-1];
+		tos = rsp[RSP_MY];
 	NEXT
 
 	// ( a -- )
 	CODE(SAT)
-		rsp[-2] = tos;
+		rsp[RSP_AT] = tos;
 		tos = dpop;
 	NEXT
 
 	// ( a -- a )
 	CODE(OPT_DUP_SAT)
-		rsp[-2] = tos;
+		rsp[RSP_AT] = tos;
 	NEXT
 
 	// ( -- a )
 	CODE(AT)
 		dpush(tos);
-		tos = rsp[-2];
+		tos = rsp[RSP_AT];
 	NEXT
 
 	// ( n -- )
 	CODE(ATSP)
-		cellp = (cell*)(rsp[-2]);
+		cellp = (cell*)(rsp[RSP_AT]);
 		*cellp++ = tos;
-		rsp[-2] = (cell)cellp;
+		rsp[RSP_AT] = (cell)cellp;
 		tos = dpop;
 	NEXT
 
 	// ( -- n )
 	CODE(ATFP)
 		dpush(tos);
-		cellp = (cell*)(rsp[-2]);
+		cellp = (cell*)(rsp[RSP_AT]);
 		tos = *cellp++;
-		rsp[-2] = (cell)cellp;
+		rsp[RSP_AT] = (cell)cellp;
 	NEXT
 
 	// ( c -- )
 	CODE(ATCSP)
-		charp = (char*)(rsp[-2]);
+		charp = (char*)(rsp[RSP_AT]);
 		*charp++ = tos;
-		rsp[-2] = (cell)charp;
+		rsp[RSP_AT] = (cell)charp;
 		tos = dpop;
 	NEXT
 
 	// ( -- c )
 	CODE(ATCFP)
 		dpush(tos);
-		charp = (char*)(rsp[-2]);
+		charp = (char*)(rsp[RSP_AT]);
 		tos = *charp++;
-		rsp[-2] = (cell)charp;
+		rsp[RSP_AT] = (cell)charp;
 	NEXT
 
 	// ( -- xt )
@@ -1454,89 +1518,82 @@ main(int argc, char *argv[], char *env[])
 	CODE(LIT_STR)
 		dpush(tos);
 		tos = (cell)(ip+1);
-		ip += *ip;
+		ip_jmp;
 	NEXT
 
 	// ( f -- )
 	CODE(BRANCH)
-		ip += tos ? 1: *ip;
+		if (tos) ip++;
+		else ip_jmp;
 		tos = dpop;
 	NEXT
 
 	// ( f -- )
 	CODE(OPT_DUP_BRANCH)
-		ip += tos ? 1: *ip;
+		if (tos) ip++;
+		else ip_jmp;
 	NEXT
 
 	// ( -- )
 	CODE(JUMP)
-		ip += *ip;
+		ip_jmp;
 	NEXT
 
 	// ( n -- )
 	CODE(LOOP)
 		if (tos)
 		{
-			rsp[0] = rsp[-3];
-			rsp[1] = rsp[-2];
-			rsp[2] = rsp[-1];
-			rsp[-3] = (cell)ip; // break
-			rsp[-2] = tos; // limit
-			rsp[-1] = 0; // index
-			rsp += 3;
+			lsp += LSP_NEST;
+			lsp[LSP_IP]  = (cell)ip; // break
+			lsp[LSP_LIM] = tos; // limit
+			lsp[LSP_IDX] = 0; // index
 			ip++;
 		}
 		else
 		{
-			ip += *ip;
+			ip_jmp;
 		}
 		tos = dpop;
 	NEXT
 
 	// ( -- )
 	CODE(ELOOP)
-		index = rsp[-4];
-		limit = rsp[-5];
+		index = lsp[LSP_IDX];
+		limit = lsp[LSP_LIM];
 		if (++index < limit || limit < 0)
 		{
-			ip = (tok*)(rsp[-6]);
-			rsp[-4] = index;
+			ip = (tok*)(lsp[LSP_IP]);
+			lsp[LSP_IDX] = index;
 			ip++;
 		}
 		else
 		{
-			rsp -= 3;
-			rsp[-3] = rsp[0];
-			rsp[-2] = rsp[1];
-			rsp[-1] = rsp[2];
+			lsp -= LSP_NEST;
 		}
 	NEXT
 
 	// ( -- i )
 	CODE(IDX)
 		dpush(tos);
-		tos = rsp[-4];
+		tos = lsp[LSP_IDX];
 	NEXT
 
 	// ( -- i )
 	CODE(OPT_IDX_ADD)
-		tos += rsp[-4];
+		tos += lsp[LSP_IDX];
 	NEXT
 
 	// ( -- )
 	CODE(LEAVE)
-		ip = (tok*)(rsp[-6]);
-		rsp -= 3;
-		rsp[-3] = rsp[0];
-		rsp[-2] = rsp[1];
-		rsp[-1] = rsp[2];
-		ip += *ip;
+		ip = (tok*)(lsp[LSP_IP]);
+		lsp -= LSP_NEST;
+		ip_jmp;
 	NEXT
 
 	// ( -- )
 	CODE(CONT)
-		ip = (tok*)(rsp[-6]);
-		ip += (*ip)-1;
+		ip = (tok*)(lsp[LSP_IP]);
+		ip++;
 	NEXT
 
 	// ( f -- )
@@ -1561,14 +1618,14 @@ main(int argc, char *argv[], char *env[])
 			goto code_LEAVE;
 	NEXT
 
-	// ( a -- n )
-	CODE(FETCH)
-		tos = *((cell*)tos);
+	// ( f -- f )
+	CODE(OPT_DUP_UNTIL)
+		if (tos)
+			goto code_LEAVE;
 	NEXT
 
 	// ( a -- n )
-	CODE(OPT_DUP_FETCH)
-		dpush(tos);
+	CODE(FETCH)
 		tos = *((cell*)tos);
 	NEXT
 
@@ -1586,12 +1643,6 @@ main(int argc, char *argv[], char *env[])
 
 	// ( -- c )
 	CODE(CFETCH)
-		tos = *((char*)tos);
-	NEXT
-
-	// ( -- c )
-	CODE(OPT_DUP_CFETCH)
-		dpush(tos);
 		tos = *((char*)tos);
 	NEXT
 
@@ -2048,7 +2099,7 @@ main(int argc, char *argv[], char *env[])
 	// ( n -- )
 	CODE(ALLOT)
 		memset(cp, 0, tos);
-		cp = (tok*)((char*)cp + tos);
+		cp = (tok*)(((char*)cp) + tos);
 		tos = dpop;
 	NEXT
 
@@ -2111,12 +2162,23 @@ main(int argc, char *argv[], char *env[])
 
 	// ( a xt -- )
 	CODE(SCOLON)
-		compile(EXIT, &cp);
+		// tail recursion
+		if (compile_last == cp-1 && call[*compile_last] == &&code_ENTER)
+		{
+			*cp++ = *compile_last;
+			cp[-2] = TAIL;
+		}
+		else
+		{
+			compile(EXIT, &cp);
+		}
 		mode--;
 		head[tos].subs = *current;
 		*current = &head[tos];
 		patch((tok*)dpop, &cp);
 		tos = dpop;
+		compile_last  = NULL;
+		ncompile_last = NULL;
 	NEXT
 
 	// ( -- a n )
@@ -2160,7 +2222,7 @@ main(int argc, char *argv[], char *env[])
 		}
 		else
 		{
-			tos = -1;
+			dpush(-1);
 			dpush((cell)cp);
 		}
 		mode++;
@@ -2171,6 +2233,8 @@ main(int argc, char *argv[], char *env[])
 
 	// ( ... a n -- )
 	CODE(END)
+		compile_last  = NULL;
+		ncompile_last = NULL;
 		// IF or ELSE
 		if (tos == 1)
 		{
@@ -2202,8 +2266,9 @@ main(int argc, char *argv[], char *env[])
 			if (!mode)
 			{
 				compile(EXIT, &cp);
-				*rsp = (cell)ip;
-				rsp += 3;
+				rsp += RSP_NEST;
+				rsp[RSP_IP]  = (cell)ip;
+				rsp[RSP_LSP] = (cell)lsp;
 				ip = (tok*)dpop;
 			}
 		}
@@ -2355,15 +2420,232 @@ main(int argc, char *argv[], char *env[])
 
 #endif
 
+#ifdef LIB_MYSQL
+
+	// ( dsn -- handle )
+	CODE(MYSQL_CONNECT)
+		tos = (cell)lib_mysql_connect((char*)tos);
+	NEXT
+
+	// ( handle -- )
+	CODE(MYSQL_CLOSE)
+		if (tos)
+			mysql_close((MYSQL*)tos);
+		tos = dpop;
+	NEXT
+
+	// ( sql handle -- handle selected|affected )
+	CODE(MYSQL_QUERY)
+		tmp = (cell)lib_mysql_query((MYSQL*)tos, (char*)dpop, &rows);
+		dpush((cell)tmp);
+		tos = rows;
+	NEXT
+
+	// ( rhandle -- addr )
+	CODE(MYSQL_FETCH)
+		tos = (cell)lib_mysql_fetch((MYSQL_RES*)dpop, (unsigned long long)tos);
+	NEXT
+
+	// ( rhandle -- addr num )
+	CODE(MYSQL_FIELDS)
+		dpush((cell)lib_mysql_fields((MYSQL_RES*)tos, (unsigned int*)&rows));
+		tos = rows;
+	NEXT
+
+	// ( src dst len handle -- len' )
+	CODE(MYSQL_ESCAPE)
+		s1 = (char*)dpop;
+		s2 = (char*)dpop;
+		tmp = dpop;
+		tos = mysql_real_escape_string((MYSQL*)tos, s1, s2, tmp);
+	NEXT
+
+	// ( rhandle -- )
+	CODE(MYSQL_FREE)
+		if (tos)
+			mysql_free_result((MYSQL_RES*)tos);
+		tos = dpop;
+	NEXT
+
+#endif
+
+	CODE(EVALUATE)
+		*asp++ = source;
+		source = tos;
+		tos = dpop;
+		for (;;)
+		{
+			// stack underflow check
+			if (dsp < ds+2)
+			{
+				dsp = ds+3;
+				tos = 0;
+				if (on_error)
+				{
+					dpush(tos);
+					tos = 1;
+					IEXECUTE(on_error, eval0)
+					if (!tos)
+					{
+						tos = dpop;
+						goto evaluate_end;
+					}
+					tos = dpop;
+				}
+				else
+				{
+					goto evaluate_end;
+				}
+			}
+
+			if (!((charp = parse()) && *charp))
+				break;
+
+			// double-quoted string literal
+			if (*charp == '"')
+			{
+				source -= strlen(charp);
+				charp = sparse();
+				if (mode)
+				{
+					compile(LIT_STR, &cp);
+					scompile(charp, &cp);
+				}
+				else
+				{
+					dpush(tos);
+					tos = (cell)charp;
+				}
+				continue;
+			}
+			// immediate word
+			if ((xt = find(macro, charp)))
+			{
+				IEXECUTE(xt, eval1)
+				continue;
+			}
+			// normal word
+			if ((xt = find(normal, charp)))
+			{
+				if (mode)
+				{
+					compile(xt, &cp);
+					continue;
+				}
+				IEXECUTE(xt, eval2)
+				continue;
+			}
+			// literal
+			if (number(charp, &tmp))
+			{
+				if (mode)
+				{
+					compile(LIT_NUM, &cp);
+					ncompile(tmp, &cp);
+					continue;
+				}
+				dpush(tos);
+				tos = tmp;
+				continue;
+			}
+			// find a word
+			if (*charp == '\'')
+			{
+				if ((xt = find(macro, charp+1)))
+				{
+					if (mode)
+					{
+						compile(LIT_TOK, &cp);
+						compile(xt, &cp);
+					}
+					else
+					{
+						dpush(tos);
+						tos = xt;
+					}
+					continue;
+				}
+				if ((xt = find(normal, charp+1)))
+				{
+					if (mode)
+					{
+						compile(LIT_TOK, &cp);
+						compile(xt, &cp);
+					}
+					else
+					{
+						dpush(tos);
+						tos = xt;
+					}
+					continue;
+				}
+			}
+			else
+			// ascii char literal
+			if (*charp == '`')
+			{
+				if (mode)
+				{
+					compile(LIT_NUM, &cp);
+					ncompile(charp[1], &cp);
+				}
+				else
+				{
+					dpush(tos);
+					tos = *charp;
+				}
+				continue;
+			}
+			else
+			// object.method notation
+			if ((xt1 = findpair(normal, charp, &xt2)))
+			{
+				if (mode)
+				{
+					compile(xt1, &cp);
+					compile(xt2, &cp);
+					continue;
+				}
+				IEXECUTE(xt1, eval3)
+				IEXECUTE(xt2, eval4)
+				continue;
+			}
+			// unknown word
+			if (on_what)
+			{
+				dpush(tos);
+				tos = (cell)charp;
+				IEXECUTE(on_what, eval5)
+				if (tos)
+				{
+					tos = dpop;
+					continue;
+				}
+				goto evaluate_end;
+			}
+			dpush(tos);
+			tos = 0;
+			goto evaluate_end;
+		}
+		// success!
+		if (on_ok)
+		{
+			IEXECUTE(on_ok, eval6)
+			tmp++; // gcc complains about IEXECUTE without this NOP
+		}
+		dpush(tos);
+		tos = -1;
+	evaluate_end:
+		source = *--asp;
+	NEXT
+
 	// ( -- )
 	CODE(NOP)
 
 	NEXT
 
 #ifdef DEBUG
-	debug_start();
 	next:
-		debug_next(ip);
 		if (single)
 		{
 			// single step debugger
@@ -2388,9 +2670,6 @@ main(int argc, char *argv[], char *env[])
 		tcsetattr(STDIN_FILENO, TCSANOW, &old_tio);
 #endif
 
-#ifdef DEBUG
-	debug_stop();
-#endif
-
+	free(fsrc);
 	return tos;
 }

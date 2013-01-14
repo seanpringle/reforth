@@ -18,6 +18,11 @@
 	create swap rot , , , does
 		at! @+ @+ @+ ;
 
+ 9 value \t
+10 value \n
+13 value \r
+27 value \e
+
 \ Zenburn
 D8h D8h D8h color fg-normal
 55h DDh 55h color fg-active
@@ -313,7 +318,7 @@ create escseq 100 allot
 				next
 			end
 
-			parsed "^(if|else|end|begin|for|:|;|value|array|create|does|record|while|until|leave|next)$" match nip
+			parsed "^(if|else|end|begin|for|:|;|value|string|array|create|does|record|while|until|leave|next)$" match nip
 			if	fg-keyword print_word item+
 				next
 			end
@@ -363,11 +368,7 @@ create escseq 100 allot
 	yank_word free 'yank_word vary ;
 
 : word_jump ( words -- )
-	my! words.size @
-	if	word my + 0 max
-		words.size @ 1- min
-		'word vary
-	end ;
+	my! words.size @ if my word + words.size @ 1- min 0 max to word end ;
 
 : words_array ( -- )
 
@@ -513,8 +514,7 @@ create escseq 100 allot
 : line_split ( -- )
 	word my! line_yank line_paste
 	word neg word_jump my 1+ for word_delete end
-	-1 line_jump my 1+ word_jump begin word my > while word_delete end
-;
+	-1 line_jump my 1+ word_jump begin word my > while word_delete end ;
 
 : line_join ( -- )
 	word my!
@@ -523,8 +523,7 @@ create escseq 100 allot
 		word_delete -1 line_jump words.size @ word_jump word_paste
 	end
 	line_delete -1 line_jump
-	word neg word_jump my word_jump
-;
+	word neg word_jump my word_jump ;
 
 : line_edit ( -- )
 
@@ -640,12 +639,12 @@ create escseq 100 allot
 	begin
 		update key my!
 
-		my 27 =
+		my \e =
 		if	ekeys escape while
 			next
 		end
 
-		my 31 > my 127 < and my 9 = or
+		my 31 > my 127 < and my \t = or
 		if	my addc \ character
 		else my keys.get execute
 		end
@@ -653,27 +652,39 @@ create escseq 100 allot
 
 : word_next ( -- )
 
-	line edit word
-	1 1 word_jump
-	begin
-		lines.size @ while
-		begin
-			words.size @ while
-			word words.get yank_word compare 0=
-			if 0= leave end
-			word words.size @ 1- < while
-			1 word_jump
-		end
-		dup while
-		1 line_jump
-		edit lines.size @ 1- < while
-		word neg word_jump
-	end
-	if
-		'word vary 'edit vary 'line vary
-	else
-		drop drop drop
-	end ;
+	: line_adv ( n -- )
+		line_jump 0 to word ;
+
+	: remainder ( -- )
+		word words.size @ 1- = if 1 line_adv else 1 word_jump end ;
+
+	: beginning ( -- )
+		edit neg line_adv ;
+
+	: word? ( f -- f' )
+		drop word words.get yank_word compare 0= ;
+
+	: line? ( f -- f' )
+		words.size @ for word? dup until 1 word_jump end ;
+
+	: search ( -- f )
+		false lines.size @ line - for line? dup until 1 line_adv end ;
+
+	: save ( -- l e w )
+		line edit word ;
+
+	: clean ( l e w -- )
+		drop drop drop ;
+
+	: restore ( l e w -- )
+		to word to edit to line ;
+
+	save
+
+	remainder search if clean exit end
+	beginning search if clean exit end
+
+	restore ;
 
 : word_find ( -- )
 	listen if tib copy yank_word! word_next end ;
@@ -762,6 +773,9 @@ create escseq 100 allot
 	: k_edit ( -- )
 		snapshot line_edit ;
 
+	: k_redit ( -- )
+		snapshot word_delete k_left line_edit ;
+
 	: kl_edit ( -- )
 		snapshot line_insert line_edit ;
 
@@ -809,31 +823,32 @@ create escseq 100 allot
 	'k_end   70 ekeys.set
 	'k_move 126 ekeys.set
 
-	'command       58 keys.set \ :
-	'rollback     117 keys.set \ u
-	'k_edit       105 keys.set \ i
-	'word_yank     99 keys.set \ c
-	'k_delete     120 keys.set \ x
-	'k_paste      118 keys.set \ v
-	'k_wleft       45 keys.set \ -
-	'k_wright      43 keys.set \ +
-	'k_indent      32 keys.set \ space
-	'k_dedent     127 keys.set \ bkspc
-	'word_find    102 keys.set \ f
-	'word_next    110 keys.set \ n
-	'kl_indent      9 keys.set \ tab
-	'kl_insert     10 keys.set \ enter
-	'kl_edit      111 keys.set \ o
-	'line_yank    121 keys.set \ y
-	'kl_delete    100 keys.set \ d
-	'kl_paste     112 keys.set \ p
-	'kl_split     115 keys.set \ s
-	'kl_join      106 keys.set \ j
+	'command       `: keys.set
+	'rollback      `u keys.set
+	'k_edit        `i keys.set
+	'k_redit       `r keys.set
+	'word_yank     `c keys.set
+	'k_delete      `x keys.set
+	'k_paste       `v keys.set
+	'k_wleft       `- keys.set
+	'k_wright      `+ keys.set
+	'k_indent      32 keys.set
+	'k_dedent     127 keys.set
+	'word_find     `f keys.set
+	'word_next     `n keys.set
+	'kl_indent     \t keys.set
+	'kl_insert     \n keys.set
+	'kl_edit       `o keys.set
+	'line_yank     `y keys.set
+	'kl_delete     `d keys.set
+	'kl_paste      `p keys.set
+	'kl_split      `s keys.set
+	'kl_join       `j keys.set
 
 	begin
 		display key my!
 
-		my 27 =
+		my \e =
 		if	ekeys escape drop
 			next
 		end

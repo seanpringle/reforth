@@ -17,6 +17,24 @@ normal
 : load ( name -- )
 	slurp dup my! evaluate drop my free ;
 
+: include ( -- )
+	sys:parse load ;
+
+: word, sys:compile ;
+: token,  'sys:lit_tok word, sys:compile  ;
+: number, 'sys:lit_num word, sys:ncompile ;
+: string, 'sys:lit_str word, sys:scompile ;
+: place, here over count 1+ allot place ;
+: string create place, ;
+
+macro
+
+: to ( -- )
+	sys:parse sys:normals sys:find sys:mode @
+	if token, 'vary word, else vary end ;
+
+normal
+
 : digit? ( c -- f )
 	dup 47 > swap 58 < and ;
 
@@ -298,7 +316,7 @@ normal
 			false leave
 		end ;
 
-	: ok ( -- f )
+	: ok ( -- )
 		" ok " type .s cr ;
 
 	'ok    sys:on-ok    !
