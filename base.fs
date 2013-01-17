@@ -93,6 +93,19 @@ normal
 	end
 	drop "(%d words)" print ;
 
+: vector ( default cells -- )
+
+	: index ( index this -- a )
+		at! @+ 1- min 0 max cells at + ;
+
+	: set ( xt index this -- )
+		index ! ;
+
+	: run ( index this -- )
+		index @ execute ;
+
+	create dup , for dup , end drop does ;
+
 : array ( -- )
 
 	record fields
@@ -121,7 +134,7 @@ normal
 		end ;
 
 	: grow ( n a -- )
-		at! dup at size @ + my!
+		at! dup at size @ + 0 max my!
 		at data @ my 1+ cells resize at data ! my at size !
 		0 max for 0 at size @ 1- i - at set end ;
 
@@ -145,139 +158,76 @@ normal
 			drop drop 0
 		end ;
 
-	: construct ( n -- a )
-		here fields allot
-		over 1+ cells allocate
-		over data !
-		tuck size ! ;
+	: construct ( n a -- )
+		at! dup at size ! cells allocate at data ! ;
 
 	: destruct ( a -- )
-		dup data @ free free ;
+		data @ free ;
 
-	create construct drop does
+	create here fields allot construct does
 ;
 
-: assoc ( -- )
+: accept ( buf lim -- flag )
 
-	record fields
-		cell field keys
-		cell field vals
+	static vars
+
+		0 value tib
+		0 value lim
+		0 value caret
+		0 array input
+
+		'drop 256 vector ekeys
+		create escseq 100 allot
+
 	end
 
-	: size ( a -- n )
-		keys @ array:size @ ;
+	: escape ( vector -- flag )
 
-	: used ( n -- n )
-		at! 0 at size
-		for
-			i at keys @ array:get
-			if 1+ end
-		end ;
+		: lone-key? ( -- f )
+			0 50 for key? or dup until 1000 usec end 0= ;
 
-	: index ( k a -- i )
-		keys @ at! my!
-		-1 at array:size @
-		for
-			my i at array:get compare
-			0= if drop i leave end
-		end ;
+		: read-seq ( a -- c )
+			at! key my! my c!+ my 91 =
+			if
+				begin
+					key dup c!+ dup while
+					dup 63 > over 127 < and until
+					drop
+				end
+				my!
+			end
+			0 c!+ my ;
 
-	: empty ( a -- i )
-		keys @ at!
-		-1 at array:size @
-		for
-			i at array:get 0=
-			if drop i leave end
-		end ;
+		at! lone-key? if false exit end
+		escseq dup read-seq at vector:run true ;
 
-	: get ( k a -- v )
-		dup at! index my!
-		my 0< if 0 else
-			my at vals @ array:get
-		end ;
+	: caret+ ( -- )
+		caret 1+ lim 1- min to caret ;
 
-	: set ( v k a -- )
-		at! dup my! at index
-		dup 0< if drop at empty end
-		dup 0< if drop drop else
-			my over
-			at keys @ array:set
-			at vals @ array:set
-		end ;
-
-	: del ( k a -- )
-		dup at! index my!
-		my 1+ 0>
-		if
-			0 my at keys @ array:set
-			0 my at vals @ array:set
-		end ;
-
-	: try ( d k a -- v )
-		dup at! index my! my 1+ 0>
-		if	drop
-			my at vals @ array:get
-		end ;
-
-	: dump ( a -- )
-		dup at! size
-		at "assoc %x\n" print
-		for
-			i at vals @ array:get
-			i at keys @ array:get
-			" %s => %d\n" print
-		end ;
-
-	: construct ( n -- a )
-		here at! fields allot dup
-		array:construct at keys !
-		array:construct at vals !
-		at ;
-
-	: destruct ( a -- )
-		dup keys @ array:destruct
-		dup vals @ array:destruct
-		free ;
-
-	create construct drop does
-;
-
-: shell ( -- )
-
-	record fields
-		256 array keys
-		256 array ekeys
-		100 array input
-		create tib 100 allot
-		variable caret
-	end
-
-	: caret+ ( n -- )
-		caret @ + 98 min 0 max caret ! ;
+	: caret- ( -- )
+		caret 1- 0 max to caret ;
 
 	: addc ( c -- )
-		caret @ input.set 1 caret+ ;
+		caret input.set caret+ ;
+
+	: bakc ( -- )
+		caret- 0 addc caret- ;
 
 	: draw ( -- )
-		"\r\e[?25l\e[K> " type
-		100 for
+		"\e8\e[?25l\e[K" type
+		lim
+		for
 			i input.get my!
 			my while my emit
 		end
 		"\e[K\e[?25h" type ;
 
-	: escape ( -- )
-		key 91 =
-		if
-			begin
-				key dup 63 > swap 127 < and until
-			end
-		end ;
-
 	: listen ( -- )
-		0 caret !
-		100 for
-			0 i input.set
+
+		caret
+		for
+			tib i + c@ my! my while
+			my i input.set
 		end
 
 		begin
@@ -285,7 +235,15 @@ normal
 			key my!
 
 			my 27 =
-			if	escape
+			if	ekeys escape 0=
+				if
+					false exit
+				end
+				next
+			end
+
+			my 127 =
+			if	bakc
 				next
 			end
 
@@ -296,12 +254,24 @@ normal
 
 			my 10 = until
 		end
-		tib at!
-		100 for
+
+		tib at! lim 1-
+		for
 			i input.get my!
 			my while my c!+
 		end
-		0 c!+ ;
+		0 c!+ true ;
+
+	to lim to tib lim input.grow
+	"\e7" type \ save cursor
+
+	tib count to caret
+
+	listen
+
+	lim neg input.grow ;
+
+: shell ( -- )
 
 	: what ( s -- f )
 		" what? %s\n" print
@@ -323,9 +293,16 @@ normal
 	'what  sys:on-what  !
 	'error sys:on-error !
 
+	100 allocate at!
+
 	begin
-		listen cr
-		tib evaluate drop
+		0 at c! "> " type
+		at 100 accept cr
+		if
+			at evaluate drop
+		else
+			ok
+		end
 	end
 ;
 

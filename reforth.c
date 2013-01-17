@@ -98,7 +98,7 @@ enum {
 	BRANCH, JUMP, LOOP, ELOOP, MACROS, NORMALS, LATEST, ADDER, HEAD_XT,
 	XT_HEAD, XT_NAME, XT_CODE, XT_BODY, XT_LIST, XT_LINK, PARSE, SPARSE, FIND,
 	FINDPAIR, COMPILE, NCOMPILE, SCOMPILE, MODE, LABEL, REDOES, ONOK, ONWHAT,
-	ONERROR, SOURCE, ERROR, USEC,
+	ONERROR, SOURCE, ERROR, USEC, STATIC,
 
 	OPT_DUP_SAT, OPT_DUP_SMY, OPT_DUP_WHILE, OPT_DUP_UNTIL, OPT_DUP_BRANCH,
 	OPT_IDX_ADD, OPT_LIT_NUM_ADD,
@@ -274,6 +274,7 @@ wordinit list_macros[] = {
 	{ .token = RECORD,   .name = "record"   },
 	{ .token = FIELD,    .name = "field"    },
 	{ .token = DOES,     .name = "does"     },
+	{ .token = STATIC,   .name = "static"   },
 };
 
 wordinit list_hiddens[] = {
@@ -1593,7 +1594,7 @@ main(int argc, char *argv[], char *env[])
 	// ( -- )
 	CODE(CONT)
 		ip = (tok*)(lsp[LSP_IP]);
-		ip++;
+		ip_jmp; ip--;
 	NEXT
 
 	// ( f -- )
@@ -2129,9 +2130,10 @@ main(int argc, char *argv[], char *env[])
 	// ( src dst -- )
 	CODE(PLACE)
 		tmp = dpop;
-		*((char*)tos) = 0;
 		if (tmp)
-			strcpy((char*)tos, (char*)tmp);
+			memmove((char*)tos, (char*)tmp, strlen((char*)tmp)+1);
+		else
+			*((char*)tos) = 0;
 		tos = dpop;
 	NEXT
 
@@ -2313,6 +2315,11 @@ main(int argc, char *argv[], char *env[])
 	NEXT
 
 	// ( -- )
+	CODE(STATIC)
+		goto code_RECORD;
+	NEXT
+
+	// ( -- )
 	CODE(COM1)
 		charp = (char*)source;
 		while (*charp && *charp++ != '\n');
@@ -2340,7 +2347,8 @@ main(int argc, char *argv[], char *env[])
 
 	// ( a -- )
 	CODE(TYPE)
-		write(fileno(stdout), (char*)tos, strlen((char*)tos));
+		if (tos)
+			write(fileno(stdout), (char*)tos, strlen((char*)tos));
 		tos = dpop;
 	NEXT
 
@@ -2592,7 +2600,7 @@ main(int argc, char *argv[], char *env[])
 				else
 				{
 					dpush(tos);
-					tos = *charp;
+					tos = charp[1];
 				}
 				continue;
 			}
