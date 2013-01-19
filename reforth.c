@@ -834,22 +834,61 @@ keyq()
 
 #ifdef LIB_REGEX
 
+#define REGEX_CACHE 3
+char *re_patterns[REGEX_CACHE];
+regex_t re_compiled[REGEX_CACHE];
+
+regex_t*
+regex(char *pattern)
+{
+	regex_t *re = NULL; int i;
+
+	// have we compiled this regex before?
+	for (i = 0; i < REGEX_CACHE; i++)
+	{
+		if (re_patterns[i] && same_name(pattern, re_patterns[i]))
+		{
+			re = &re_compiled[i];
+			break;
+		}
+	}
+	if (!re)
+	{
+		// look for a free cache slot
+		for (i = 0; i < REGEX_CACHE; i++)
+		{
+			if (!re_patterns[i])
+				break;
+		}
+		if (i == REGEX_CACHE)
+		{
+			// free the oldest
+			i = REGEX_CACHE - 1;
+			regfree(&re_compiled[0]); free(re_patterns[0]);
+			memmove(&re_compiled[0], &re_compiled[1], sizeof(regex_t) * i);
+		}
+		re = &re_compiled[i];
+		re_patterns[i] = strdup(pattern);
+		if (regcomp(re, pattern, REG_EXTENDED) != 0)
+		{
+			fprintf(stderr, "regex compile failure: %s", pattern);
+			exit(1);
+		}
+	}
+	return re;
+}
+
 // POSIX regex match
 int
 match(char *pattern, char **subject)
 {
-	regex_t re; int r = 0; regmatch_t pmatch;
-	if (regcomp(&re, pattern, REG_EXTENDED) != 0)
-	{
-		fprintf(stderr, "regex compile failure: %s", pattern);
-		exit(1);
-	}
+	int r = 0; regmatch_t pmatch;
+	regex_t *re = regex(pattern);
 	if (subject)
 	{
-		r = regexec(&re, *subject, 1, &pmatch, 0) == 0 ?-1:0;
+		r = regexec(re, *subject, 1, &pmatch, 0) == 0 ?-1:0;
 		*subject += r ? pmatch.rm_so: strlen(*subject);
 	}
-	regfree(&re);
 	return r;
 }
 
@@ -857,15 +896,11 @@ match(char *pattern, char **subject)
 int
 split(char *pattern, char **subject)
 {
-	regex_t re; int r = 0; regmatch_t pmatch;
-	if (regcomp(&re, pattern, REG_EXTENDED) != 0)
-	{
-		fprintf(stderr, "regex compile failure: %s", pattern);
-		exit(1);
-	}
+	int r = 0; regmatch_t pmatch;
+	regex_t *re = regex(pattern);
 	if (*subject)
 	{
-		r = regexec(&re, *subject, 1, &pmatch, 0) == 0 ?-1:0;
+		r = regexec(re, *subject, 1, &pmatch, 0) == 0 ?-1:0;
 		if (r)
 		{
 			memset(*subject + pmatch.rm_so, 0, pmatch.rm_eo - pmatch.rm_so);
@@ -876,7 +911,6 @@ split(char *pattern, char **subject)
 			*subject += strlen(*subject);
 		}
 	}
-	regfree(&re);
 	return r;
 }
 

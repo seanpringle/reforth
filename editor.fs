@@ -82,7 +82,6 @@
 \ | r[beta]      | Current replace string is "beta"          |
 \ ------------------------------------------------------------
 
-
 \ ***** Globals *****
 
  10 value \n
@@ -116,49 +115,37 @@ create message 100 allot
 
 \ ***** Theme Colors *****
 
-: color ( r g b -- )
-	create swap rot , , , does at! @+ @+ @+ ;
+"\e[39;22m" string fg-normal
+"\e[34;22m" string fg-comment
+"\e[35;22m" string fg-string
+"\e[36;22m" string fg-number
+"\e[33;22m" string fg-keyword
+"\e[39;22m" string fg-coreword
+"\e[31;22m" string fg-define
 
-\ Zenburn
-D8h D8h D8h color fg-normal
-55h DDh 55h color fg-active
-CCh 99h 99h color fg-string
-88h CCh CCh color fg-number
-FFh DDh AAh color fg-keyword
-88h AAh 88h color fg-comment
-BBh BBh CCh color fg-coreword
-FFh FFh FFh color fg-define
-FFh FFh FFh color fg-status
+"\e[39;22m" string fg-status
 
-39h 39h 39h color bg-normal
-40h 40h 40h color bg-active
-40h 39h 40h color bg-marked
-30h 30h 30h color bg-status
+"\e[49;22m" string bg-normal
+"\e[49;22m" string bg-active
+"\e[49;22m" string bg-marked
+"\e[49;1m" string bg-status
 
 \ ***** ANSI Escape Sequences *****
 
 create last_fg 20 allot
 create last_bg 20 allot
 
-: fg ( r g b -- )
-	swap rot "\e[38;2;%d;%d;%dm" format
-	dup last_fg compare if dup type end last_fg place ;
+: fg ( s -- )
+	dup last_fg place type ;
 
-: bg ( r g b -- )
-	swap rot "\e[48;2;%d;%d;%dm" format
-	dup last_bg compare if dup type end last_bg place ;
-
-: erase ( -- )
-	"\e[K" type ;
+: bg ( s -- )
+	dup last_bg place type ;
 
 : fgbg ( -- )
 	last_fg type last_bg type ;
 
-: plain ( -- )
-	"\e[0m" type fgbg ;
-
-: underline ( -- )
-	"\e[4m" type fgbg ;
+: erase ( -- )
+	"\e[K" type ;
 
 : cursor ( state -- )
 	if "\e[?25h" else "\e[?25l" end type ;
@@ -346,7 +333,8 @@ create source  100 allot
 	caret 0 to caret
 	begin
 		caret length < while ending
-		begin left current white? while
+		begin
+			left current white? while
 			remove drop caret over < if 1- end
 		end
 		right right
@@ -473,11 +461,8 @@ create input 100 allot
 		\ detect colon definitions
 		`: is if fg-keyword go colon exit end
 
-		pad sys:macros sys:find if fg-keyword go exit end
-		pad 'caret sys:xt-head sys:find if fg-coreword go exit end
-
+		pad "^(:|;|if|else|end|exit|begin|for|while|until|value|record|static|field|create|next|leave|array|vector)$" match? if fg-keyword go exit end
 		pad number nip if fg-number go exit end
-
 		fg-normal go ;
 
 	: word ( a -- a' )
@@ -489,7 +474,7 @@ create input 100 allot
 		bg-normal bg ;
 
 	: width ( a -- n )
-		at! 0 begin dup counter + caret = if leave end c@+ my! my 0= my \n = or if drop 0 leave end 1+ end ;
+		at! 0 begin dup counter + caret = until c@+ my! my 0= my \n = or if drop 0 leave end 1+ end ;
 
 	: one-line ( a -- a' )
 		bcolor dup width cols - 0 max to discard
@@ -501,7 +486,7 @@ create input 100 allot
 		max-xy to rows to cols
 
 		col row at-xy
-		plain false wrap false cursor
+		false wrap false cursor
 
 		: jump ( -- n )
 			rows 2/ 2/ ;
@@ -628,17 +613,26 @@ create input 100 allot
 		'cekey_tilde 126 cekeys.set
 
 		'imode       `i ckeys.set
+		'imode       `I ckeys.set
+		'search      `n ckeys.set
+		'search      `N ckeys.set
+		'replace     `r ckeys.set
+		'replace     `R ckeys.set
+		'undo        `u ckeys.set
+		'undo        `U ckeys.set
+		'mark        `m ckeys.set
+		'mark        `M ckeys.set
+		'delete      `d ckeys.set
+		'delete      `D ckeys.set
+		'yank        `y ckeys.set
+		'yank        `Y ckeys.set
+		'paste       `p ckeys.set
+		'paste       `P ckeys.set
+		'key_o       `o ckeys.set
+		'key_o       `O ckeys.set
+		'command     `: ckeys.set
 		'com_search  `/ ckeys.set
 		'com_replace `\ ckeys.set
-		'search      `n ckeys.set
-		'replace     `r ckeys.set
-		'command     `: ckeys.set
-		'undo        `u ckeys.set
-		'mark        `m ckeys.set
-		'delete      `d ckeys.set
-		'yank        `y ckeys.set
-		'paste       `p ckeys.set
-		'key_o       `o ckeys.set
 
 	end
 

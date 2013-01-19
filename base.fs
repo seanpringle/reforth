@@ -242,7 +242,7 @@ normal
 				next
 			end
 
-			my 127 =
+			my 127 = my 8 = or
 			if	bakc
 				next
 			end
