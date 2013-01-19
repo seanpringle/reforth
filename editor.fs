@@ -1,13 +1,89 @@
-\ Reforth Editor
+\ Reforth Editor -- re
+\
+\ **********************************************************************
+\
+\ MIT/X11 License
+\ Copyright (c) 2012 Sean Pringle <sean.pringle@gmail.com>
+\
+\ Permission is hereby granted, free of charge, to any person obtaining
+\ a copy of this software and associated documentation files (the
+\ "Software"), to deal in the Software without restriction, including
+\ without limitation the rights to use, copy, modify, merge, publish,
+\ distribute, sublicense, and/or sell copies of the Software, and to
+\ permit persons to whom the Software is furnished to do so, subject to
+\ the following conditions:
+\
+\ The above copyright notice and this permission notice shall be
+\ included in all copies or substantial portions of the Software.
+\
+\ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+\ OR IMPLIED, ADD1LUDING BUT NOT LIMITED TO THE WARRANTIES OF
+\ MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+\ IN NO EVENT SHALL THE AUTHOrs OR COPYRIGHT HOLDErs BE LIABLE FOR ANY
+\ CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+\ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+\ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+\
+\ **********************************************************************
+\
+\ Sean Pringle <sean.pringle@gmail.com>, Jan 2013:
+\
+\ This editor is influenced by vi(m) but much simplified and designed to
+\ take advantage of the Forth shell. It's also small and easy to hack!
+\
+\ I was never a vim power-user but did become attached to some of the
+\ basic command-mode controls. The subset supported here allow me to
+\ move between here and vim without tripping up... much. YMMV.
+\
+\ COMMAND mode uses macro editing controls and word-based navigation.
+\
+\ ------------------------------------------------------------
+\ | i            | Enter INSERT mode at the caret            |
+\ | o            | Insert a blank line and enter INSERT mode |
+\ | /            | Search for text by posix regex            |
+\ | n            | Search for next occurrence                |
+\ | \            | Set replacement text                      |
+\ | r            | Replace current search match              |
+\ | m            | Mark the current line                     |
+\ | y            | Copy from mark to current line            |
+\ | d            | Copy and delete from mark to current line |
+\ | p            | Paste copied text after current line      |
+\ | :            | Access the Forth shell                    |
+\ | Insert       | Enter INSERT mode (same as 'i')           |
+\ ------------------------------------------------------------
+\
+\ Convenient Forth words:
+\
+\ ------------------------------------------------------------
+\ | w            | Save the file                             |
+\ | q            | Exit the editor                           |
+\ | wq           | w q                                       |
+\ | g ( n -- )   | Jump to line 'n'                          |
+\ | ?            | Wait for a key stroke                     |
+\ ------------------------------------------------------------
+\
+\ INSERT Mode uses "normal" text editing controls and navigation.
+\
+\ ------------------------------------------------------------
+\ | Escape       | Exit INSERT mode                          |
+\ | Insert       | Exit INSERT mode                          |
+\ ------------------------------------------------------------
+\
+\ An example status line:
+\
+\ (0) -- INSERT -- 77,35 s[alpha] r[beta]
+\
+\ ------------------------------------------------------------
+\ | (0)          | Forth Stack (zero items)                  |
+\ | -- INSERT -- | Editor mode                               |
+\ | 77           | Current line                              |
+\ | 35           | Current column                            |
+\ | s[alpha]     | Current search regex is "alpha"           |
+\ | r[beta]      | Current replace string is "beta"          |
+\ ------------------------------------------------------------
 
- 0 value mode
- 0 value caret
- 0 value caret-row
- 0 value caret-col
- 0 value file
- 0 value length
- 0 value copied
--1 value marked
+
+\ ***** Globals *****
 
  10 value \n
  13 value \r
@@ -15,25 +91,31 @@
   9 value \t
  27 value \e
 127 value \b
+  0 value mode
+  5 value tabsize
+ 20 array backups
 
-5 value tabsize
+"HOME" getenv "%s/.redclip"
+format string clipboard
 
-10 array backups
+\ ***** Utility Words *****
 
 : copy ( a -- b )
 	dup count 1+ allocate tuck place ;
 
-: extract ( a n -- b )
+: ncopy ( a n -- b )
 	my! at! my 1+ allocate at over my cmove 0 over my + c! ;
 
-: color ( r g b -- )
-	create swap rot , , , does at! @+ @+ @+ ;
-
-: match? ( subjetc pattern -- f )
+: match? ( subject pattern -- f )
 	match nip ;
 
 : msec ( n -- )
 	1000 * usec ;
+
+\ ***** Theme Colors *****
+
+: color ( r g b -- )
+	create swap rot , , , does at! @+ @+ @+ ;
 
 \ Zenburn
 D8h D8h D8h color fg-normal
@@ -50,6 +132,8 @@ FFh FFh FFh color fg-status
 40h 40h 40h color bg-active
 40h 39h 40h color bg-marked
 30h 30h 30h color bg-status
+
+\ ***** ANSI Escape Sequences *****
 
 create last_fg 20 allot
 create last_bg 20 allot
@@ -80,39 +164,20 @@ create last_bg 20 allot
 : wrap ( state -- )
 	if "\e[?7h" else "\e[?7l" end type ;
 
-: status ( -- )
-	max-xy my! drop 0 my at-xy fg-status fg bg-status bg ;
-
 : white? ( c -- f )
 	dup \s = swap \t = or ;
 
-: line ( index -- )
+: printable? ( c -- f )
+	my! my 31 > my 127 < and my 9 = or ;
 
-	: scan ( a -- a' )
-		at! begin c@+ my! my while my \n = until end at 1- ;
+\ ***** File Handling *****
 
-	file swap for scan end ;
-
-: word ( a index -- a' )
-
-	: skip ( a -- a' )
-		at! begin c@+ my! my while my white? while end at 1- ;
-
-	: sparse ( a -- a' )
-		at! begin c@+ my! my while my `" = until my `\ = if at c@ if c@+ drop end end end at ;
-
-	: parse ( a -- a' )
-		at! begin c@+ my! my while my space? until end at 1- ;
-
-	: scan ( a -- a' )
-		dup c@ `" = if sparse else parse end ;
-
-	for skip scan end skip ;
+0 value file
+0 value length
+create name 100 allot
 
 : load ( text -- )
 	file free copy dup to file count to length ;
-
-create name 100 allot
 
 : rename ( name -- )
 	name place ;
@@ -129,6 +194,18 @@ create name 100 allot
 : undo ( -- )
 	0 backups.del dup if dup load end free ;
 
+\ ***** Caret Manipulation *****
+
+0 value caret
+0 value caret-row
+0 value caret-col
+
+: pointer ( -- a )
+	file caret + ;
+
+: current ( -- c )
+	pointer c@ ;
+
 : sanity ( -- )
 	caret 0 max length min to caret ;
 
@@ -144,26 +221,14 @@ create name 100 allot
 : length- ( n -- )
 	length swap - 0 max to length sanity ;
 
-: pointer ( -- a )
-	file caret + ;
-
-: current ( -- c )
-	pointer c@ ;
-
-: insert ( c -- )
-	1 length+ pointer dup dup 1+ place c! ;
-
-: remove ( -- c )
-	pointer c@ caret length < if pointer 1+ pointer place 1 length- end ;
-
-: replace ( c -- )
-	pointer c! ;
+: previous ( -- c )
+	pointer file = if 0 else pointer 1- c@ end ;
 
 : home ( -- )
-	begin caret 0> while left current \n = until end caret 0> if right end ;
+	caret for left current \n = until end caret 0> if right end ;
 
 : ending ( -- )
-	begin caret length < while current \n = until right end ;
+	length caret - for current \n = until right end ;
 
 : position ( -- n )
 	caret home caret over to caret - ;
@@ -183,6 +248,19 @@ create name 100 allot
 : pgdown ( -- )
 	max-xy nip 2/ for down end ;
 
+: status ( -- )
+	max-xy my! drop 0 my at-xy fg-status fg bg-status bg ;
+
+\ ***** Text Manipulation *****
+
+-1 value marked
+
+: insert ( c -- )
+	1 length+ pointer dup dup 1+ place c! ;
+
+: remove ( -- c )
+	pointer c@ caret length < if pointer 1+ pointer place 1 length- end ;
+
 : mark ( -- )
 	caret home caret to marked to caret ;
 
@@ -192,25 +270,53 @@ create name 100 allot
 : unmark ( -- )
 	-1 to marked ;
 
+: inject ( str -- )
+	at! backup caret ending right at count my! my length+
+	pointer dup dup my + place at swap my cmove to caret ;
+
 : paste ( -- )
-	backup
-	caret ending right copied count my! my length+
-	pointer dup dup my + place copied swap my cmove
-	to caret ;
+	clipboard slurp at! at if at inject at free down end ;
 
 : yank ( -- )
 	remark caret marked file + at! ending right
-	at caret marked - extract copied free to copied
-	to caret unmark ;
+	at caret marked - ncopy dup clipboard blurt drop
+	free to caret unmark ;
 
 : delete ( -- )
 	backup remark
 	marked file + at! ending right caret marked - my!
-	at my extract copied free to copied pointer at place my length-
+	at my ncopy dup clipboard blurt drop free
+	pointer at place my length-
 	marked to caret unmark ;
 
-create target 100 allot
-create source 100 allot
+: complete ( -- )
+
+	: go ( c -- )
+		right insert left ;
+
+	current `" = previous space? and
+	if `" go exit end
+
+	current `: = previous space? and
+	if `; go \s go exit end
+
+	current `( = previous space? and
+	if `) go \s go exit end ;
+
+\ ***** Search and Replace *****
+
+create pattern 100 allot
+create target  100 allot
+create source  100 allot
+
+: pattern@ ( s -- a )
+	sys:source @ at! sys:source ! sys:sparse at sys:source ! ;
+
+: target@ ( -- a )
+	pattern target "\e%s\e" format pattern@ over place ;
+
+: source@ ( -- a )
+	pattern source "\e%s\e" format pattern@ over place ;
 
 : search ( -- )
 
@@ -219,18 +325,20 @@ create source 100 allot
 
 	right
 
-	pointer target match if goto exit end drop
-	file    target match if goto exit end drop
+	pointer target@ match if goto exit end drop
+	file    target@ match if goto exit end drop
 
 	left ;
 
 : replace ( -- )
-	pointer target match swap pointer = and
+	pointer target@ match swap pointer = and
 	if
-		backup pointer copy at! at target split drop
-		at - for remove drop end at free source at!
+		backup pointer copy at! at target@ split drop
+		at - for remove drop end at free source@ at!
 		begin c@+ dup while insert right end drop
 	end ;
+
+\ ***** Housekeeping *****
 
 : clean ( -- )
 	caret 0 to caret
@@ -240,22 +348,27 @@ create source 100 allot
 			remove drop caret over < if 1- end
 		end
 		right right
-	end 
+	end
 	to caret ;
 
 : indent ( -- )
-	caret
-	up home dup caret > current white? and
-	if
-		my! 0
-		 begin
-			current white? while
-			caret current my to caret insert to caret
-			right 1+
-		end
-		my +
+
+	static vars
+		create pad 100 allot
 	end
-	to caret ;
+
+	: indent? ( c -- )
+		dup white? swap `\ = or ;
+
+	: indent@ ( -- )
+		pad at! 99 for current indent? while current c!+ right end 0 c!+ ;
+
+	: indent! ( -- )
+		pad at! begin c@+ my! my while my insert right end ;
+
+	caret up home indent@ to caret indent! ;
+
+\ ***** Command Interpreter *****
 
 create input 100 allot
 
@@ -263,21 +376,9 @@ create input 100 allot
 	status erase type 0 input ! input 100 accept ;
 
 : command ( -- )
-	"> " prompt
-	if
-		true wrap \s emit
-		input "^/[^ ]+" match?
-		if
-			`" input c! input evaluate drop target place
-			search exit
-		end
-		input "^![^ ]+" match?
-		if
-			`" input c! input evaluate drop source place
-			exit
-		end
-		input evaluate drop
-	end ;
+	"> " prompt if true wrap \s emit input evaluate drop end ;
+
+\ ***** Screen Rendering *****
 
 : display ( -- )
 
@@ -291,6 +392,7 @@ create input 100 allot
 		0 value from
 		0 value upto
 		0 value last
+		0 value line
 		0 value active
 		0 value counter
 		0 value discard
@@ -303,10 +405,7 @@ create input 100 allot
 		col 1+ cols min to col ;
 
 	: row+ ( -- )
-		row 1+ rows min to row 0 to col ;
-
-	: line+ ( -- )
-		erase 10 emit row+ ;
+		erase 10 emit row 1+ rows min to row 0 to col ;
 
 	: tab+ ( -- )
 		tabsize col over mod - for \s emit col+ end ;
@@ -326,7 +425,7 @@ create input 100 allot
 	: put ( c -- ) my! counter+
 		discard   if discard- exit end
 		last-row? if          exit end
-		my \n =   if line+    exit end
+		my \n =   if row+     exit end
 		last-col? if          exit end
 		my \t =   if tab+     exit end
 		my emit col+ ;
@@ -338,25 +437,25 @@ create input 100 allot
 		at! begin c@+ dup while put end drop ;
 
 	: skip ( a -- a' )
-		at! begin c@+ dup while dup white? while put end drop at 1- ;
+		begin dup c@ dup while dup white? while put 1+ end drop ;
 
-	: scan ( a -- a' )
-		at! begin c@+ dup while dup space? until put end drop at 1- ;
+	: parse ( a -- a' )
+		0 pad ! pad at! begin dup c@ dup while dup space? until c!+ 1+ end drop 0 !+ ;
 
 	: sparse ( a -- a' )
 		fg-string fg put+ at! begin c@+ dup while dup put dup `" = until `\ = if at put+ at! end end drop at ;
-
-	: keep ( c -- )
-		pad count pad + at! c!+ 0 c!+ ;
 
 	: comment ( -- )
 		fg-comment fg pad puts ;
 
 	: comment1 ( a -- a' )
-		comment begin dup c@ while dup c@ \n = until skip dup scan swap "^)\s+" match? until end ;
+		comment begin dup c@ while skip dup c@ \n = until parse pad puts pad c@ `) = until end ;
 
 	: comment2 ( a -- a' )
 		comment at! begin c@+ dup while dup \n = until put end drop at 1- ;
+
+	: colon ( a -- a' )
+		skip parse fg-define fg pad puts ;
 
 	: color ( -- )
 
@@ -364,10 +463,13 @@ create input 100 allot
 			fg pad puts ;
 
 		: is ( c -- f )
-			pad c@ = pad 1+ c@ 0= and ;
+			pad at! c@+ = c@+ 0= and ;
 
 		`( is if comment1 exit end
 		`\ is if comment2 exit end
+
+		\ detect colon definitions
+		`: is if fg-keyword go colon exit end
 
 		pad sys:macros sys:find if fg-keyword go exit end
 		pad 'caret sys:xt-head sys:find if fg-coreword go exit end
@@ -376,11 +478,8 @@ create input 100 allot
 
 		fg-normal go ;
 
-	: parse ( a -- a' )
-		0 pad ! at! begin c@+ dup while dup space? until keep end drop at 1- color ;
-
 	: word ( a -- a' )
-		skip dup c@ `" = if sparse else parse end ;
+		skip dup c@ `" = if sparse else parse color end ;
 
 	: bcolor ( -- )
 		counter active = if bg-active bg exit end
@@ -390,12 +489,12 @@ create input 100 allot
 	: width ( a -- n )
 		at! 0 begin dup counter + caret = if leave end c@+ my! my 0= my \n = or if drop 0 leave end 1+ end ;
 
-	: line ( a -- a' )
+	: one-line ( a -- a' )
 		bcolor dup width cols - 0 max to discard
 		begin skip dup c@ while dup c@ \n = if 1+ leave end word end \n put ;
 
 	: setup ( -- a )
-		
+
 		0 to row 0 to col
 		max-xy to rows to cols
 
@@ -417,6 +516,7 @@ create input 100 allot
 			\ caret has moved off screen. recalc screen boundaries
 			caret from > if rows jump - else jump end
 			home for up end caret to from my to caret
+			0 file at! from for c@+ \n = if 1+ end end to line
 			leave
 		end
 		-1    to caret-col
@@ -427,23 +527,29 @@ create input 100 allot
 		file from + ;
 
 	: draw ( a -- a' )
-		begin line row rows < while dup c@ while end ;
+		begin one-line row rows < while dup c@ while end ;
 
 	: cleanup ( a -- )
 		dup file - to upto bcolor \n put skip drop bg-normal bg
 		rows row - 0 max for erase cr end ;
 
+	: caret-line ( -- n )
+		line from file + at! caret from - for c@+ \n = if 1+ end end ;
+
 	: status-line ( -- )
 		status .s
 		mode if "-- INSERT --" else "-- COMMAND --" end type
-		target c@ if target " /%s" print end
-		source c@ if source " \%s" print end
+		position caret-line " %d,%d" print
+		target c@ if target " s[%s]" print end
+		source c@ if source " r[%s]" print end
 		erase ;
 
 	: place-caret
 		true cursor caret-col caret-row at-xy ;
 
 	setup draw cleanup status-line place-caret ;
+
+\ ***** Program Main Loop *****
 
 : cycle ( -- )
 
@@ -471,8 +577,9 @@ create input 100 allot
  		my `3 = if key_del exit end ;
 
 	: com_insert  ( -- ) backup imode ;
-	: com_search  ( -- ) "/"  prompt if input target place search end ;
-	: com_replace ( -- ) "\\" prompt if input source place end ;
+
+	: com_search  ( -- ) "search> "  prompt if input target place search end ;
+	: com_replace ( -- ) "replace> " prompt if input source place end ;
 
 	: com_ekey_tilde ( escseq -- )
  		1+ c@ my!
@@ -487,6 +594,7 @@ create input 100 allot
 		'drop 128 vector cekeys
 		'nop  128 vector ckeys
 
+		\ INSERT mode
  		'ekey_up     65 ekeys.set
  		'ekey_down   66 ekeys.set
  		'ekey_right  67 ekeys.set
@@ -498,6 +606,7 @@ create input 100 allot
 		'key_back    \b keys.set
 		'key_enter   \n keys.set
 
+		\ COMMAND mode
  		'ekey_up     65 cekeys.set
  		'ekey_down   66 cekeys.set
  		'ekey_right  67 cekeys.set
@@ -534,9 +643,9 @@ create input 100 allot
 				next
 			end
 
-			my 31 > my 127 < and my 9 = or
+			my printable?
 			if
-				my insert right
+				my insert complete right
 				next
 			end
 
@@ -552,11 +661,23 @@ create input 100 allot
 		my ckeys.run
 	end ;
 
-: q cr bye ;
+\ ***** Short Commands *****
+
+: q cr "\ec" type bye ;
 : w save ;
 : wq w q ;
 : ? key drop ;
 
+: g ( line -- )
+	0 to caret for down end ;
+
+\ ***** Go! *****
+
+"HOME" getenv "%s/.redrc" format
+slurp dup push
+if top evaluate drop end
+pop free
+
 "" load
-2 arg if 2 arg open end
+1 arg if 1 arg open end
 cycle

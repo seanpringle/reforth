@@ -271,38 +271,3 @@ normal
 
 	lim neg input.grow ;
 
-: shell ( -- )
-
-	: what ( s -- f )
-		" what? %s\n" print
-		depth for drop end false ;
-
-	: error ( n -- f ) my!
-		begin
-			my 1 =
-			if	" stack underflow!\n" type
-				false leave
-			end
-			false leave
-		end ;
-
-	: ok ( -- )
-		" ok " type .s cr ;
-
-	'ok    sys:on-ok    !
-	'what  sys:on-what  !
-	'error sys:on-error !
-
-	100 allocate at!
-
-	begin
-		0 at c! "> " type
-		at 100 accept cr
-		if
-			at evaluate drop
-		else
-			ok
-		end
-	end
-;
-

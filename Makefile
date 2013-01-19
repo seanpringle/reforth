@@ -1,11 +1,25 @@
 CFLAGS?=-Wall -O3 -g
 
-normal:
-	$(CC) -o fstoc fstoc.c $(CFLAGS)
+normal: compress generic shell editor
+
+generic:
 	./fstoc base.fs
 	$(CC) -DLIB_SHELL -DLIB_REGEX -DLIB_FORK -DLIB_MYSQL $(CFLAGS) -lmysqlclient -o reforth reforth.c
 	$(CC) -DDEBUG -DLIB_SHELL -DLIB_REGEX -DLIB_FORK -DLIB_MYSQL $(CFLAGS) -lmysqlclient -o reforth_debug reforth.c
 	objdump -d reforth >reforth.dump
+
+shell:
+	./fstoc base.fs --turnkey shell.fs
+	$(CC) -DTURNKEY -DLIB_SHELL -DLIB_REGEX -DLIB_REGEX -DLIB_FORK $(CFLAGS) -o rf reforth.c
+	strip rf
+
+editor:
+	./fstoc base.fs --turnkey editor.fs
+	$(CC) -DTURNKEY -DLIB_SHELL -DLIB_REGEX $(CFLAGS) -o re reforth.c
+	strip re
+
+compress:
+	$(CC) -o fstoc fstoc.c $(CFLAGS)
 
 compare:
 	gcc -DLIB_SHELL -DLIB_REGEX -DLIB_FORK $(CFLAGS) -o reforth_gcc reforth.c

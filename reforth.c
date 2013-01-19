@@ -228,6 +228,7 @@ wordinit list_normals[] = {
 	{ .token = TYPE,     .name = "type"     },
 	{ .token = ERROR,    .name = "error"    },
 	{ .token = USEC,     .name = "usec"     },
+	{ .token = FIELD,    .name = "field"    },
 	{ .token = EVALUATE, .name = "evaluate" },
 
 #ifdef DEBUG
@@ -272,7 +273,6 @@ wordinit list_macros[] = {
 	{ .token = COM1,     .name = "\\"       },
 	{ .token = COM2,     .name = "("        },
 	{ .token = RECORD,   .name = "record"   },
-	{ .token = FIELD,    .name = "field"    },
 	{ .token = DOES,     .name = "does"     },
 	{ .token = STATIC,   .name = "static"   },
 };
@@ -356,11 +356,7 @@ slurp(char *name)
 	char *pad = malloc(lim+1);
 
 	FILE *file = fopen(name, "r");
-	if (!file)
-	{
-		fprintf(stderr, "could not open: %s\n", name);
-		return NULL;
-	}
+	if (!file) return NULL;
 
 	unsigned int read = 0;
 	for (;;)
@@ -1073,6 +1069,10 @@ tok init[] = { EVALUATE, BYE };
 
 #include "src_base.c"
 
+#ifdef TURNKEY
+#include "src_turnkey.c"
+#endif
+
 // Use GCC's &&label syntax to find code word adresses.
 #define CODE(x) call[(x)] = &&code_##x; if (0) { code_##x:
 
@@ -1152,22 +1152,6 @@ main(int argc, char *argv[], char *env[])
 #ifdef LIB_MYSQL
 	unsigned long long rows;
 #endif
-
-	// Assume the last command line argument is our Forth source file
-	char *run = NULL;
-	for (i = 1; i < argc; i++)
-	{
-		if (strncmp(argv[i], "--", 2))
-		{
-			run = argv[i];
-		}
-		else
-		if (!strcmp(argv[i], "--dump-envs"))
-		{
-			for (j = 0; env[j]; j++)
-				fprintf(stderr, "%s\n", env[j]);
-		}
-	}
 
 	// Initialize the dictionary headers
 
@@ -1256,10 +1240,32 @@ main(int argc, char *argv[], char *env[])
 	lsp = ls+3;
 	ip = init;
 
-	// Look for a Forth source file on the command line
-
 	char *fsrc = strdup(src_base);
 
+#ifdef TURNKEY
+
+	fsrc = realloc(fsrc, strlen(fsrc) + strlen(src_turnkey) + 2);
+	strcat(fsrc, "\n");
+	strcat(fsrc, src_turnkey);
+
+#else
+
+	// Assume the last command line argument is our Forth source file
+	char *run = NULL;
+
+	for (i = 1; i < argc; i++)
+	{
+		if (!run && strncmp(argv[i], "--", 2))
+		{
+			run = argv[i];
+		}
+		else
+		if (!strcmp(argv[i], "--dump-envs"))
+		{
+			for (j = 0; env[j]; j++)
+				fprintf(stderr, "%s\n", env[j]);
+		}
+	}
 	if (run)
 	{
 		char *pad = slurp(run);
@@ -1276,6 +1282,8 @@ main(int argc, char *argv[], char *env[])
 		fsrc = realloc(fsrc, strlen(fsrc) + 50);
 		strcat(fsrc, "\nshell");
 	}
+
+#endif
 
 	// First word called is always EVALUATE, so place source address TOS
 	tos = (cell)fsrc;
