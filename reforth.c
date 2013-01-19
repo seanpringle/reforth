@@ -565,6 +565,9 @@ sparse()
 			if (c == 'e')
 				c = '\e';
 			else
+			if (c == 'a')
+				c = '\a';
+			else
 			if (c == 't')
 				c = '\t';
 			else

@@ -90,13 +90,15 @@
  32 value \s
   9 value \t
  27 value \e
-127 value \b
+  8 value \b
   0 value mode
   5 value tabsize
  20 array backups
 
 "HOME" getenv "%s/.redclip"
 format string clipboard
+
+create message 100 allot
 
 \ ***** Utility Words *****
 
@@ -405,7 +407,7 @@ create input 100 allot
 		col 1+ cols min to col ;
 
 	: row+ ( -- )
-		erase 10 emit row 1+ rows min to row 0 to col ;
+		erase cr row 1+ rows min to row 0 to col ;
 
 	: tab+ ( -- )
 		tabsize col over mod - for \s emit col+ end ;
@@ -542,6 +544,7 @@ create input 100 allot
 		position caret-line " %d,%d" print
 		target c@ if target " s[%s]" print end
 		source c@ if source " r[%s]" print end
+		message " %s" print
 		erase ;
 
 	: place-caret
@@ -553,39 +556,45 @@ create input 100 allot
 
 : cycle ( -- )
 
-	: imode ( -- ) true to mode ;
+	: == compare 0= ;
+
+	: imode ( -- ) backup true to mode ;
 	: cmode ( -- ) false to mode clean ;
 
-	: ekey_right ( -- ) drop right  ;
-	: ekey_left  ( -- ) drop left   ;
-	: ekey_up    ( -- ) drop up     ;
-	: ekey_down  ( -- ) drop down   ;
-	: ekey_home  ( -- ) drop home   ;
-	: ekey_end   ( -- ) drop ending ;
+	: ekey_right ( e -- ) drop right  ;
+	: ekey_left  ( e -- ) drop left   ;
+	: ekey_up    ( e -- ) drop up     ;
+	: ekey_down  ( e -- ) drop down   ;
+	: ekey_home  ( e -- ) drop home   ;
+	: ekey_end   ( e -- ) drop ending ;
 
 	: key_del    ( -- ) remove drop ;
 	: key_back   ( -- ) left key_del ;
 	: key_enter  ( -- ) \n insert right indent ;
 	: key_o      ( -- ) ending imode key_enter ;
 
- 	: ekey_tilde ( escseq -- )
- 		1+ c@ my!
+	: ekey_tilde ( escseq -- ) at!
+		at "[1~" == if home    exit end
+		at "[7~" == if home    exit end
+		at "[4~" == if ending  exit end
+		at "[2~" == if cmode   exit end
+		at "[3~" == if key_del exit end
+		at "[5~" == if pgup    exit end
+		at "[6~" == if pgdown  exit end ;
 
- 		my `5 = if pgup    exit end
- 		my `6 = if pgdown  exit end
- 		my `2 = if cmode   exit end
- 		my `3 = if key_del exit end ;
-
-	: com_insert  ( -- ) backup imode ;
+	: ekey_idiots ( e -- )
+		drop key `H = if home else ending end ;
 
 	: com_search  ( -- ) "search> "  prompt if input target place search end ;
 	: com_replace ( -- ) "replace> " prompt if input source place end ;
 
-	: com_ekey_tilde ( escseq -- )
- 		1+ c@ my!
-		my `2 = if com_insert exit end
- 		my `5 = if pgup   exit end
- 		my `6 = if pgdown exit end ;
+	: cekey_tilde ( escseq -- ) at!
+		at "[1~" == if home    exit end
+		at "[7~" == if home    exit end
+		at "[4~" == if ending  exit end
+		at "[2~" == if imode   exit end
+		at "[5~" == if pgup    exit end
+		at "[6~" == if pgdown  exit end ;
 
 	static vars
 
@@ -595,28 +604,30 @@ create input 100 allot
 		'nop  128 vector ckeys
 
 		\ INSERT mode
- 		'ekey_up     65 ekeys.set
- 		'ekey_down   66 ekeys.set
- 		'ekey_right  67 ekeys.set
- 		'ekey_left   68 ekeys.set
- 		'ekey_home   72 ekeys.set
- 		'ekey_end    70 ekeys.set
- 		'ekey_tilde 126 ekeys.set
+		'ekey_up     65 ekeys.set
+		'ekey_down   66 ekeys.set
+		'ekey_right  67 ekeys.set
+		'ekey_left   68 ekeys.set
+		'ekey_home   72 ekeys.set
+		'ekey_end    70 ekeys.set
+		'ekey_idiots 79 ekeys.set
+		'ekey_tilde 126 ekeys.set
 
 		'key_back    \b keys.set
+		'key_back   127 keys.set
 		'key_enter   \n keys.set
 
 		\ COMMAND mode
- 		'ekey_up     65 cekeys.set
- 		'ekey_down   66 cekeys.set
- 		'ekey_right  67 cekeys.set
- 		'ekey_left   68 cekeys.set
- 		'ekey_home   72 cekeys.set
- 		'ekey_end    70 cekeys.set
+		'ekey_up     65 cekeys.set
+		'ekey_down   66 cekeys.set
+		'ekey_right  67 cekeys.set
+		'ekey_left   68 cekeys.set
+		'ekey_home   72 cekeys.set
+		'ekey_end    70 cekeys.set
+		'ekey_idiots 79 cekeys.set
+		'cekey_tilde 126 cekeys.set
 
- 		'com_ekey_tilde 126 cekeys.set
-
-		'com_insert  `i ckeys.set
+		'imode       `i ckeys.set
 		'com_search  `/ ckeys.set
 		'com_replace `\ ckeys.set
 		'search      `n ckeys.set
