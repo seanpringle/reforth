@@ -24,7 +24,6 @@
 \ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 \ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 \
-\ **********************************************************************
 \
 \ Sean Pringle <sean.pringle@gmail.com>, Jan 2013:
 \
@@ -92,7 +91,8 @@
   8 value \b
   0 value mode
   5 value tabsize
- 20 array backups
+ 20 array undo-lifo
+ 20 array redo-lifo
 
 "HOME" getenv "%s/.redclip"
 format string clipboard
@@ -113,22 +113,95 @@ create message 100 allot
 : msec ( n -- )
 	1000 * usec ;
 
+: ==  ( s1 s2 -- f )
+	compare 0= ;
+
 \ ***** Theme Colors *****
 
-"\e[39;22m" string fg-normal
-"\e[34;22m" string fg-comment
-"\e[35;22m" string fg-string
-"\e[36;22m" string fg-number
-"\e[33;22m" string fg-keyword
-"\e[39;22m" string fg-coreword
-"\e[31;22m" string fg-define
+0 value fg-normal
+0 value fg-comment
+0 value fg-string
+0 value fg-number
+0 value fg-keyword
+0 value fg-coreword
+0 value fg-define
+0 value fg-status
+0 value bg-normal
+0 value bg-active
+0 value bg-marked
+0 value bg-status
 
-"\e[39;22m" string fg-status
+: colors ( -- )
 
-"\e[49;22m" string bg-normal
-"\e[49;22m" string bg-active
-"\e[49;22m" string bg-marked
-"\e[49;1m" string bg-status
+	: xterm-color ( r g b -- n )
+
+		: xcolor? ( n -- f )
+			dup 0= over 5Eh > or swap 55 - 0 max 40 mod 0= and ;
+
+		: color? ( r g b -- r g b f )
+			dup xcolor? push rot
+			dup xcolor? push rot
+			dup xcolor? push rot
+			pop pop pop and and ;
+
+		: grey? ( r g b -- r g b f )
+			push over over = my! pop over over = my and ;
+
+		: scale ( n -- n' )
+			55 - 0 max 20 + 40 / ;
+
+		: to-color ( r g b -- n )
+			scale swap scale 6 * + swap scale 36 * + 16 + ;
+
+		: to-grey ( r g b -- n )
+			swap 8 shl or swap 16 shl or 657930 / 232 + ;
+
+		grey? push color? 0= pop and
+		if to-grey else to-color end
+		0 max 255 min ;
+
+	: escseq ( n -- s )
+		"\e[%d;5;%dm" format here swap place, ;
+
+	: fg-256 ( r g b -- a )
+		xterm-color 38 escseq ;
+
+	: bg-256 ( r g b -- a )
+		xterm-color 48 escseq ;
+
+	\ xterm 256 color mode
+	"TERM" getenv "256color" match?
+	if
+		D8h D8h D8h fg-256 to fg-normal
+		82h AAh 8Ch fg-256 to fg-comment
+		C8h 91h 91h fg-256 to fg-string
+		8Ch C8h C8h fg-256 to fg-number
+		F0h DCh AFh fg-256 to fg-keyword
+		D8h D8h D8h fg-256 to fg-coreword
+		F0h F0h 8Ch fg-256 to fg-define
+		FFh FFh FFh fg-256 to fg-status
+		30h 30h 30h bg-256 to bg-normal
+		40h 40h 40h bg-256 to bg-active
+		40h 40h 40h bg-256 to bg-marked
+		00h 00h 00h bg-256 to bg-status
+		exit
+	end
+
+	\ Default 16 color mode
+	"\e[39;22m" to fg-normal
+	"\e[34;22m" to fg-comment
+	"\e[35;22m" to fg-string
+	"\e[36;22m" to fg-number
+	"\e[33;22m" to fg-keyword
+	"\e[39;22m" to fg-coreword
+	"\e[31;22m" to fg-define
+	"\e[39;22m" to fg-status
+	"\e[49;22m" to bg-normal
+	"\e[49;1m"  to bg-active
+	"\e[47;22m" to bg-marked
+	"\e[49;1m"  to bg-status ;
+
+colors
 
 \ ***** ANSI Escape Sequences *****
 
@@ -177,11 +250,17 @@ create name 100 allot
 : open ( name -- )
 	rename name slurp load ;
 
-: backup ( -- )
-	backups.size @ 1- backups.get free file copy 0 backups.ins ;
+: redo! ( -- )
+	redo-lifo.size @ 1- redo-lifo.get free file copy 0 redo-lifo.ins ;
+
+: undo! ( -- )
+	undo-lifo.size @ 1- undo-lifo.get free file copy 0 undo-lifo.ins ;
+
+: redo ( -- )
+	undo! 0 redo-lifo.del dup if dup load end free ;
 
 : undo ( -- )
-	0 backups.del dup if dup load end free ;
+	redo! 0 undo-lifo.del dup if dup load end free ;
 
 \ ***** Caret Manipulation *****
 
@@ -250,17 +329,17 @@ create name 100 allot
 : remove ( -- c )
 	pointer c@ caret length < if pointer 1+ pointer place 1 length- end ;
 
+: unmark ( -- )
+	-1 to marked ;
+
 : mark ( -- )
 	caret home caret to marked to caret ;
 
 : remark ( -- )
 	marked 0< if mark end ;
 
-: unmark ( -- )
-	-1 to marked ;
-
 : inject ( str -- )
-	at! backup caret ending right at count my! my length+
+	at! undo! caret ending right at count my! my length+
 	pointer dup dup my + place at swap my cmove to caret ;
 
 : paste ( -- )
@@ -272,7 +351,7 @@ create name 100 allot
 	free to caret unmark ;
 
 : delete ( -- )
-	backup remark
+	undo! remark
 	marked file + at! ending right caret marked - my!
 	at my ncopy dup clipboard blurt drop free
 	pointer at place my length-
@@ -322,7 +401,7 @@ create source  100 allot
 : replace ( -- )
 	pointer target@ match swap pointer = and
 	if
-		backup pointer copy at! at target@ split drop
+		undo! pointer copy at! at target@ split drop
 		at - for remove drop end at free source@ at!
 		begin c@+ dup while insert right end drop
 	end ;
@@ -541,10 +620,9 @@ create input 100 allot
 
 : cycle ( -- )
 
-	: == compare 0= ;
 
-	: imode ( -- ) backup true to mode ;
-	: cmode ( -- ) false to mode clean ;
+	: imode ( -- ) undo! true to mode ;
+	: cmode ( -- ) false to mode clean unmark ;
 
 	: ekey_right ( e -- ) drop right  ;
 	: ekey_left  ( e -- ) drop left   ;
@@ -659,7 +737,8 @@ create input 100 allot
 		end
 
 		my \e =
-		if	cekeys accept:escape drop
+		if	cekeys accept:escape
+			0= if cmode end
 			next
 		end
 

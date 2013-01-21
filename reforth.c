@@ -866,6 +866,7 @@ regex(char *pattern)
 			i = REGEX_CACHE - 1;
 			regfree(&re_compiled[0]); free(re_patterns[0]);
 			memmove(&re_compiled[0], &re_compiled[1], sizeof(regex_t) * i);
+			memmove(&re_patterns[0], &re_patterns[1], sizeof(char*)   * i);
 		}
 		re = &re_compiled[i];
 		re_patterns[i] = strdup(pattern);
