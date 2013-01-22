@@ -24,7 +24,6 @@
 \ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 \ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 \
-\ **********************************************************************
 \
 \ Sean Pringle <sean.pringle@gmail.com>, Jan 2013:
 \
@@ -92,7 +91,8 @@
   8 value \b
   0 value mode
   5 value tabsize
- 20 array backups
+ 20 array undo-lifo
+ 20 array redo-lifo
 
 "HOME" getenv "%s/.redclip"
 format string clipboard
@@ -113,22 +113,98 @@ create message 100 allot
 : msec ( n -- )
 	1000 * usec ;
 
+: ==  ( s1 s2 -- f )
+	compare 0= ;
+
 \ ***** Theme Colors *****
 
-"\e[39;22m" string fg-normal
-"\e[34;22m" string fg-comment
-"\e[35;22m" string fg-string
-"\e[36;22m" string fg-number
-"\e[33;22m" string fg-keyword
-"\e[39;22m" string fg-coreword
-"\e[31;22m" string fg-define
+0 value fg-normal
+0 value fg-comment
+0 value fg-string
+0 value fg-number
+0 value fg-keyword
+0 value fg-coreword
+0 value fg-variable
+0 value fg-define
+0 value fg-status
+0 value bg-normal
+0 value bg-active
+0 value bg-marked
+0 value bg-status
 
-"\e[39;22m" string fg-status
+: colors ( -- )
 
-"\e[49;22m" string bg-normal
-"\e[49;22m" string bg-active
-"\e[49;22m" string bg-marked
-"\e[49;1m" string bg-status
+	: xterm-color ( r g b -- n )
+
+		: xcolor? ( n -- f )
+			dup 0= over 5Eh > or swap 55 - 0 max 40 mod 0= and ;
+
+		: color? ( r g b -- r g b f )
+			dup xcolor? push rot
+			dup xcolor? push rot
+			dup xcolor? push rot
+			pop pop pop and and ;
+
+		: grey? ( r g b -- r g b f )
+			push over over = my! pop over over = my and ;
+
+		: scale ( n -- n' )
+			55 - 0 max 20 + 40 / ;
+
+		: to-color ( r g b -- n )
+			scale swap scale 6 * + swap scale 36 * + 16 + ;
+
+		: to-grey ( r g b -- n )
+			swap 8 shl or swap 16 shl or 657930 / 232 + ;
+
+		grey? push color? 0= pop and
+		if to-grey else to-color end
+		0 max 255 min ;
+
+	: escseq ( n -- s )
+		"\e[%d;5;%dm" format here swap place, ;
+
+	: fg-256 ( r g b -- a )
+		xterm-color 38 escseq ;
+
+	: bg-256 ( r g b -- a )
+		xterm-color 48 escseq ;
+
+	\ xterm 256-color mode
+	"TERM" getenv "256color" match?
+	if
+		D8h D8h D8h fg-256 to fg-normal
+		82h AAh 8Ch fg-256 to fg-comment
+		C8h 91h 91h fg-256 to fg-string
+		8Ch C8h C8h fg-256 to fg-number
+		F0h DCh AFh fg-256 to fg-keyword
+		D8h D8h D8h fg-256 to fg-coreword
+		D4h C4h A9h fg-256 to fg-variable
+		F0h F0h 8Ch fg-256 to fg-define
+		FFh FFh FFh fg-256 to fg-status
+		30h 30h 30h bg-256 to bg-normal
+		40h 40h 40h bg-256 to bg-active
+		40h 40h 40h bg-256 to bg-marked
+		00h 00h 00h bg-256 to bg-status
+		exit
+	end
+
+	\ Default 16 color mode
+	"\e[39;22m" to fg-normal
+	"\e[34;22m" to fg-comment
+	"\e[35;22m" to fg-string
+	"\e[36;22m" to fg-number
+	"\e[33;22m" to fg-keyword
+	"\e[39;22m" to fg-coreword
+	"\e[39;22m" to fg-variable
+	"\e[31;22m" to fg-define
+	"\e[39;22m" to fg-status
+	"\e[49;22m" to bg-normal
+	"\e[49;1m"  to bg-active
+	"\e[47;22m" to bg-marked
+	"\e[49;1m"  to bg-status ;
+
+colors
 
 \ ***** ANSI Escape Sequences *****
 
@@ -163,13 +239,32 @@ create last_bg 20 allot
 
 0 value file
 0 value length
+0 value syntax
 create name 100 allot
+
+static syntax
+	enum PLAIN
+	enum REFORTH
+	enum PHP
+end
 
 : load ( text -- )
 	file free copy dup to file count to length ;
 
 : rename ( name -- )
-	name place ;
+
+	name place
+
+	: syntax? ( syn ext -- f )
+		"\.%s$" format name swap match? if to syntax true else drop false end ;
+
+	begin
+		REFORTH "fs"  syntax? until
+		PHP     "php" syntax? until
+
+		PLAIN to syntax
+		leave
+	end ;
 
 : save ( -- )
 	file name blurt drop ;
@@ -177,11 +272,17 @@ create name 100 allot
 : open ( name -- )
 	rename name slurp load ;
 
-: backup ( -- )
-	backups.size @ 1- backups.get free file copy 0 backups.ins ;
+: redo! ( -- )
+	redo-lifo.size @ 1- redo-lifo.get free file copy 0 redo-lifo.ins ;
+
+: undo! ( -- )
+	undo-lifo.size @ 1- undo-lifo.get free file copy 0 undo-lifo.ins ;
+
+: redo ( -- )
+	undo! 0 redo-lifo.del dup if dup load end free ;
 
 : undo ( -- )
-	0 backups.del dup if dup load end free ;
+	redo! 0 undo-lifo.del dup if dup load end free ;
 
 \ ***** Caret Manipulation *****
 
@@ -250,17 +351,18 @@ create name 100 allot
 : remove ( -- c )
 	pointer c@ caret length < if pointer 1+ pointer place 1 length- end ;
 
+: unmark ( -- )
+	-1 to marked ;
+
 : mark ( -- )
 	caret home caret to marked to caret ;
 
 : remark ( -- )
-	marked 0< if mark end ;
-
-: unmark ( -- )
-	-1 to marked ;
+	marked 0< if mark exit end
+	marked caret > if home caret marked to caret to marked end ;
 
 : inject ( str -- )
-	at! backup caret ending right at count my! my length+
+	at! undo! caret ending right at count my! my length+
 	pointer dup dup my + place at swap my cmove to caret ;
 
 : paste ( -- )
@@ -272,7 +374,7 @@ create name 100 allot
 	free to caret unmark ;
 
 : delete ( -- )
-	backup remark
+	undo! remark
 	marked file + at! ending right caret marked - my!
 	at my ncopy dup clipboard blurt drop free
 	pointer at place my length-
@@ -322,7 +424,7 @@ create source  100 allot
 : replace ( -- )
 	pointer target@ match swap pointer = and
 	if
-		backup pointer copy at! at target@ split drop
+		undo! pointer copy at! at target@ split drop
 		at - for remove drop end at free source@ at!
 		begin c@+ dup while insert right end drop
 	end ;
@@ -386,6 +488,7 @@ create input 100 allot
 		0 value active
 		0 value counter
 		0 value discard
+		0 value handler
 
 		create pad 100 allot
 
@@ -406,79 +509,141 @@ create input 100 allot
 	: last-col? ( -- f )
 		col cols 1- > ;
 
-	: discard- ( -- )
-		discard 1- 0 max to discard ;
+	: discard- ( c -- )
+		\t = if tabsize else 1 end discard swap - 0 max to discard ;
 
 	: counter+ ( -- )
 		counter dup caret = if col to caret-col row to caret-row end 1+ to counter ;
 
 	: put ( c -- ) my! counter+
-		discard   if discard- exit end
-		last-row? if          exit end
-		my \n =   if row+     exit end
-		last-col? if          exit end
-		my \t =   if tab+     exit end
+		discard   if my discard- exit end
+		last-row? if             exit end
+		my \n =   if row+        exit end
+		last-col? if             exit end
+		my \t =   if tab+        exit end
 		my emit col+ ;
 
-	: put+ ( a c -- a' )
+	: put+ ( a -- a' )
 		dup c@ if dup c@ put 1+ end ;
 
 	: puts ( s -- )
 		at! begin c@+ dup while put end drop ;
-
-	: skip ( a -- a' )
-		begin dup c@ dup while dup white? while put 1+ end drop ;
-
-	: parse ( a -- a' )
-		0 pad ! pad at! begin dup c@ dup while dup space? until c!+ 1+ end drop 0 !+ ;
-
-	: sparse ( a -- a' )
-		fg-string fg put+ at! begin c@+ dup while dup put dup `" = until `\ = if at put+ at! end end drop at ;
-
-	: comment ( -- )
-		fg-comment fg pad puts ;
-
-	: comment1 ( a -- a' )
-		comment begin dup c@ while skip dup c@ \n = until parse pad puts pad c@ `) = until end ;
-
-	: comment2 ( a -- a' )
-		comment at! begin c@+ dup while dup \n = until put end drop at 1- ;
-
-	: colon ( a -- a' )
-		skip parse fg-define fg pad puts ;
-
-	: color ( -- )
-
-		: go ( r g b -- )
-			fg pad puts ;
-
-		: is ( c -- f )
-			pad at! c@+ = c@+ 0= and ;
-
-		`( is if comment1 exit end
-		`\ is if comment2 exit end
-
-		\ detect colon definitions
-		`: is if fg-keyword go colon exit end
-
-		pad "^(:|;|if|else|end|exit|begin|for|while|until|value|record|static|field|create|next|leave|array|vector)$" match? if fg-keyword go exit end
-		pad number nip if fg-number go exit end
-		fg-normal go ;
-
-	: word ( a -- a' )
-		skip dup c@ `" = if sparse else parse color end ;
 
 	: bcolor ( -- )
 		counter active = if bg-active bg exit end
 		counter marked = if bg-marked bg exit end
 		bg-normal bg ;
 
+	: fcolor ( -- )
+		fg-normal fg ;
+
+	: skip ( a -- a' )
+		begin dup c@ dup while dup white? while put 1+ end drop ;
+
 	: width ( a -- n )
 		at! 0 begin dup counter + caret = until c@+ my! my 0= my \n = or if drop 0 leave end 1+ end ;
 
-	: one-line ( a -- a' )
-		bcolor dup width cols - 0 max to discard
+	: plain ( a -- a' )
+		begin dup c@ my! my while my put 1+ my \n = until end ;
+
+	: reforth ( a -- a' )
+
+		: parse ( a -- a' )
+			0 pad ! pad at! begin dup c@ dup while dup space? until c!+ 1+ end drop 0 !+ ;
+
+		: sparse ( a -- a' )
+			fg-string fg put+ at! begin c@+ dup while dup put dup `" = until `\ = if at put+ at! end end drop at ;
+
+		: comment ( -- )
+			fg-comment fg pad puts ;
+
+		: comment1 ( a -- a' )
+			comment begin dup c@ while skip dup c@ \n = until parse pad puts pad c@ `) = until end ;
+
+		: comment2 ( a -- a' )
+			comment begin dup c@ dup while dup \n = until put 1+ end drop ;
+
+		: colon ( a -- a' )
+			skip parse fg-define fg pad puts ;
+
+		: color ( -- )
+
+			: go ( r g b -- )
+				fg pad puts ;
+
+			: is ( c -- f )
+				pad at! c@+ = c@+ 0= and ;
+
+			`( is if comment1 exit end
+			`\ is if comment2 exit end
+
+			\ detect colon definitions
+			`: is if fg-keyword go colon exit end
+
+			pad "^(:|;|if|else|end|exit|begin|for|while|until|value|record|static|field|create|next|leave|array|vector)$" match? if fg-keyword go exit end
+			pad number nip if fg-number go exit end
+			fg-normal go ;
+
+		: word ( a -- a' )
+			skip dup c@ `" = if sparse else parse color end ;
+
+		: width ( a -- n )
+			at! 0 begin dup counter + caret = until c@+ my! my 0= my \n = or if drop 0 leave end 1+ end ;
+
 		begin skip dup c@ while dup c@ \n = if 1+ leave end word end \n put ;
+
+	: php ( a -- a' )
+
+		: cnum? ( c -- f )
+			my! my digit? my hex? or ;
+
+		: cname? ( c -- f )
+			my! my alpha? my digit? my `_ = my `$ = or or or ;
+
+		: quote? ( c -- f )
+			dup `" = swap `' = or ;
+
+		: comment? ( a -- a f )
+			dup "^//" match? ;
+
+		: keyword? ( a -- a f )
+			dup "^(function|class|if|else|elsif|for|foreach|while|switch|case|return|array|continue|break|catch|try|throw)\s*[[:punct:]]" match? ;
+
+		: variable? ( a -- a f )
+			dup c@ `$ = ;
+
+		: number? ( a -- a f )
+			dup c@ digit? ;
+
+		: string? ( a -- a f )
+			dup c@ quote? ;
+
+		: define? ( a -- a f )
+			dup "^(function|class)\s+[[:alpha:]]+" match? ;
+
+		: parse ( a -- a' )
+			begin dup c@ dup while dup cname? while put 1+ end drop ;
+
+		: nparse ( a -- a' )
+			begin dup c@ dup while dup cnum? while put 1+ end drop ;
+
+		: sparse ( a -- a' )
+			put+ begin dup c@ my! my while 1+ my put my quote? until my `\ = if put+ end end ;
+
+		: define ( a -- a' )
+			fg-keyword fg parse skip fg-define fg parse ;
+
+		begin
+			skip dup c@ my! my while
+			comment?  if fg-comment  fg plain  fg-normal fg leave end
+			define?   if                define fg-normal fg next  end
+			variable? if fg-variable fg parse  fg-normal fg next  end
+			keyword?  if fg-keyword  fg parse  fg-normal fg next  end
+			number?   if fg-number   fg nparse fg-normal fg next  end
+			string?   if fg-string   fg sparse fg-normal fg next  end
+			my alpha? if                parse               next  end
+			my put 1+ my \n = until
+		end ;
 
 	: setup ( -- a )
 
@@ -487,6 +652,15 @@ create input 100 allot
 
 		col row at-xy
 		false wrap false cursor
+
+		: syntax? ( xt n -- )
+			syntax = if to handler true else drop false end ;
+
+		begin
+			'reforth REFORTH syntax? until
+			'php     PHP     syntax? until
+			'plain to handler        leave
+		end
 
 		: jump ( -- n )
 			rows 2/ 2/ ;
@@ -514,7 +688,10 @@ create input 100 allot
 		file from + ;
 
 	: draw ( a -- a' )
-		begin one-line row rows < while dup c@ while end ;
+		begin
+			bcolor fcolor dup width cols - 0 max to discard
+			handler execute row rows < while dup c@ while
+		end ;
 
 	: cleanup ( a -- )
 		dup file - to upto bcolor \n put skip drop bg-normal bg
@@ -541,10 +718,9 @@ create input 100 allot
 
 : cycle ( -- )
 
-	: == compare 0= ;
 
-	: imode ( -- ) backup true to mode ;
-	: cmode ( -- ) false to mode clean ;
+	: imode ( -- ) undo! true to mode ;
+	: cmode ( -- ) false to mode clean unmark ;
 
 	: ekey_right ( e -- ) drop right  ;
 	: ekey_left  ( e -- ) drop left   ;
@@ -659,7 +835,8 @@ create input 100 allot
 		end
 
 		my \e =
-		if	cekeys accept:escape drop
+		if	cekeys accept:escape
+			0= if cmode end
 			next
 		end
 

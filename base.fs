@@ -1,3 +1,5 @@
+\ Reforth
+
 normal
 
 0 value null
@@ -13,6 +15,7 @@ normal
 'what sys:on-what !
 
 : variable create 0 , ;
+: enum push dup value 1+ pop ;
 
 : load ( name -- )
 	slurp dup my! evaluate drop my free ;
