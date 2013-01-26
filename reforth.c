@@ -79,6 +79,7 @@ typedef struct _word {
 	struct _word *prev, *subs;
 } word;
 
+#define STACK 1024
 #define MAXTOKEN 4096
 
 enum {
@@ -116,7 +117,7 @@ enum {
 #endif
 
 #ifdef LIB_FORK
-	FORK, SELF,
+	FORK, SELF, SYSTEM,
 #endif
 
 #ifdef LIB_MYSQL
@@ -249,6 +250,7 @@ wordinit list_normals[] = {
 #ifdef LIB_FORK
 	{ .token = FORK,     .name = "fork"     },
 	{ .token = SELF,     .name = "self"     },
+	{ .token = SYSTEM,   .name = "system"   },
 #endif
 
 #ifdef LIB_MYSQL
@@ -613,22 +615,18 @@ char *format_bufs[FORMAT_BUFS];
 
 // Format a string using C-like printf() syntax
 char*
-format(char *pat, cell **_dsp)
+format(char *in, cell **_dsp)
 {
 	cell *dsp = *_dsp;
-
 	char *buf = malloc(FORMAT_BUF);
 
 	int idx = format_i++;
 	if (format_i == FORMAT_BUFS) format_i = 0;
 
-	free(format_bufs[idx]);
-	format_bufs[idx] = buf;
-
 	char tmp[32], *p;
-	char *in = pat, *out = buf;
+	int len = 0;
 
-	while (*in)
+	while (*in && len < FORMAT_BUF-2)
 	{
 		char c = *in++;
 		if (*in && c == '%')
@@ -645,24 +643,26 @@ format(char *pat, cell **_dsp)
 
 				if (c == 's')
 				{
-					out += sprintf(out, tmp, (char*)dpop);
+					len += snprintf(buf+len, FORMAT_BUF-len, tmp, (char*)dpop);
 				}
 				else
 				if (strchr("cdiouxX", c))
 				{
-					out += sprintf(out, tmp, dpop);
+					len += snprintf(buf+len, FORMAT_BUF-len, tmp, dpop);
 				}
 				else
 				if (strchr("eEfgG", c))
 				{
-					out += sprintf(out, tmp, (double)dpop);
+					len += snprintf(buf+len, FORMAT_BUF-len, tmp, (double)dpop);
 				}
 				continue;
 			}
 		}
-		*out++ = c;
+		buf[len++] = c;
 	}
-	*out = 0;
+	buf[len] = 0;
+	free(format_bufs[idx]);
+	format_bufs[idx] = buf;
 	*_dsp = dsp;
 	return buf;
 }
@@ -834,7 +834,7 @@ keyq()
 
 #ifdef LIB_REGEX
 
-#define REGEX_CACHE 3
+#define REGEX_CACHE 4
 char *re_patterns[REGEX_CACHE];
 regex_t re_compiled[REGEX_CACHE];
 
@@ -885,7 +885,7 @@ match(char *pattern, char **subject)
 {
 	int r = 0; regmatch_t pmatch;
 	regex_t *re = regex(pattern);
-	if (subject)
+	if (subject && *subject)
 	{
 		r = regexec(re, *subject, 1, &pmatch, 0) == 0 ?-1:0;
 		*subject += r ? pmatch.rm_so: strlen(*subject);
@@ -922,6 +922,82 @@ split(char *pattern, char **subject)
 void catch_exit(int sig)
 {
 	while (0 < waitpid(-1, NULL, WNOHANG));
+}
+
+#define EXEC_READ 0
+#define EXEC_WRITE 1
+
+// execute sub-process and connect its stdin=infp and stdout=outfp
+pid_t
+exec_cmd_io(const char *command, int *infp, int *outfp)
+{
+	signal(SIGCHLD, catch_exit);
+	int p_stdin[2], p_stdout[2];
+	pid_t pid;
+
+	if (pipe(p_stdin) != 0 || pipe(p_stdout) != 0)
+		return -1;
+	pid = fork();
+	if (pid < 0)
+		return pid;
+	else if (pid == 0)
+	{
+		close(p_stdin[EXEC_WRITE]);
+		dup2(p_stdin[EXEC_READ], EXEC_READ);
+		close(p_stdout[EXEC_READ]);
+		dup2(p_stdout[EXEC_WRITE], EXEC_WRITE);
+		execlp("/bin/sh", "sh", "-c", command, NULL);
+		exit(EXIT_FAILURE);
+	}
+	if (infp == NULL)
+		close(p_stdin[EXEC_WRITE]);
+	else
+		*infp = p_stdin[EXEC_WRITE];
+	if (outfp == NULL)
+		close(p_stdout[EXEC_READ]);
+	else
+		*outfp = p_stdout[EXEC_READ];
+	close(p_stdin[EXEC_READ]);
+	close(p_stdout[EXEC_WRITE]);
+	return pid;
+}
+
+pid_t
+exec_cmd(const char *cmd)
+{
+	pid_t pid;
+	signal(SIGCHLD, catch_exit);
+	pid = fork();
+	if (!pid)
+	{
+		setsid();
+		execlp("/bin/sh", "sh", "-c", cmd, NULL);
+		exit(EXIT_FAILURE);
+	}
+	return pid;
+}
+
+char*
+sys_exec(const char *cmd, const char *data)
+{
+	int in, out;
+	exec_cmd_io(cmd, &in, &out);
+
+	write(in, data, strlen(data));
+	close(in);
+
+	int len = 0;
+	char *res = malloc(1024);
+	for (;;)
+	{
+		int rc = read(out, res+len, 1023);
+		if (rc > 0) len += rc;
+		if (rc < 1023) break;
+		res = realloc(res, len+1024);
+	}
+	res[len] = 0;
+	close(out);
+	return res;
 }
 
 #endif
@@ -1129,10 +1205,10 @@ tok init[] = { EVALUATE, BYE };
 int
 main(int argc, char *argv[], char *env[])
 {
-	cell ds[64]; // Data stack
-	cell rs[64]; // Return stack
-	cell as[64]; // Alternate data stack (PUSH, POP, TOP)
-	cell ls[64]; // Loop stack
+	cell ds[STACK]; // Data stack
+	cell rs[STACK]; // Return stack
+	cell as[STACK]; // Alternate data stack (PUSH, POP, TOP)
+	cell ls[STACK]; // Loop stack
 
 	// Both these variables are used in NEXT and should have first-dibs on being in
 	// a register. The C compiler is free to ignore the "register" keyword, but some
@@ -1835,14 +1911,16 @@ main(int argc, char *argv[], char *env[])
 	// ( src dst len -- )
 	CODE(MOVE)
 		dst = dpop, src = dpop;
-		memmove((char*)dst, (char*)src, tos * sizeof(cell));
+		if (tos > 0)
+			memmove((char*)dst, (char*)src, tos * sizeof(cell));
 		tos = dpop;
 	NEXT
 
 	// ( src dst len -- )
 	CODE(CMOVE)
 		dst = dpop, src = dpop;
-		memmove((char*)dst, (char*)src, tos);
+		if (tos > 0)
+			memmove((char*)dst, (char*)src, tos);
 		tos = dpop;
 	NEXT
 
@@ -2013,10 +2091,11 @@ main(int argc, char *argv[], char *env[])
 		tos = tos ? strlen((char*)tos): 0;
 	NEXT
 
-	// ( s1 s2 -- n )
+	// ( s1 s2 n -- f )
 	CODE(COMPARE)
+		s2 = (char*)dpop;
 		s1 = (char*)dpop;
-		s2 = (char*)tos;
+		tmp = tos;
 		if (!s1 && !s2)
 			tos = 0;
 		else
@@ -2025,6 +2104,9 @@ main(int argc, char *argv[], char *env[])
 		else
 		if (!s1 && s2)
 			tos = -1;
+		else
+		if (tmp)
+			tos = strncmp(s1, s2, tmp);
 		else
 			tos = strcmp(s1, s2);
 	NEXT
@@ -2472,6 +2554,12 @@ main(int argc, char *argv[], char *env[])
 		tos = getpid();
 	NEXT
 
+	// ( data cmd -- res )
+	CODE(SYSTEM)
+		tmp = dpop;
+		tos = (cell)sys_exec((char*)tos, tmp ? (char*)tmp: "");
+	NEXT
+
 #endif
 
 #ifdef LIB_MYSQL
@@ -2527,7 +2615,7 @@ main(int argc, char *argv[], char *env[])
 		*asp++ = source;
 		source = tos;
 		tos = dpop;
-		for (;;)
+		if (source) for (;;)
 		{
 			// stack underflow check
 			if (dsp < ds+2)

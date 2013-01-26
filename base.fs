@@ -9,6 +9,11 @@ normal
 : cell+ cell + ;
 : cell- cell - ;
 
+: <= my! 1- my < ;
+: >= my! 1+ my > ;
+: 2dup  over over ;
+: 2drop drop drop ;
+
 : what ( s -- f )
 	" what? %s" format error false ;
 
@@ -17,11 +22,11 @@ normal
 : variable create 0 , ;
 : enum push dup value 1+ pop ;
 
-: load ( name -- )
+: included ( name -- )
 	slurp dup my! evaluate drop my free ;
 
 : include ( -- )
-	sys:parse load ;
+	sys:parse included ;
 
 : word, sys:compile ;
 : token,  'sys:lit_tok word, sys:compile  ;
@@ -32,11 +37,18 @@ normal
 
 macro
 
-: to ( -- )
+: to ( n -- )
 	sys:parse sys:normals sys:find sys:mode @
 	if token, 'vary word, else vary end ;
 
+: is ( xt -- )
+	sys:parse sys:normals sys:find sys:mode @
+	if 'sys:xt-body word, '@ word, token, 'sys:xt-body word, '! word,
+	else swap sys:xt-body @ swap sys:xt-body ! end ;
+
 normal
+
+: nop ;
 
 : digit? ( c -- f )
 	dup 47 > swap 58 < and ;
@@ -96,181 +108,200 @@ normal
 	end
 	drop "(%d words)" print ;
 
-: vector ( default cells -- )
-
-	: index ( index this -- a )
+: array ( n -- )
+	create dup , for 0 , end does
 		at! @+ 1- min 0 max cells at + ;
 
-	: set ( xt index this -- )
-		index ! ;
-
-	: run ( index this -- )
-		index @ execute ;
-
-	create dup , for dup , end drop does ;
-
-: array ( -- )
+: stack ( -- )
 
 	record fields
 		cell field size
 		cell field data
 	end
 
-	: bounds ( n a -- n a f )
-		over my! dup size @ my > my 1+ 0> and ;
+	: last ( a -- b )
+		at! at size @ 1- 0 max cells at data @ + ;
 
-	: index ( i a -- )
-		data @ swap cells + ;
+	: inc ( a -- )
+		at! 1 at size +! at data @ at size @ cells resize at data ! ;
 
-	: get ( i a -- n )
-		bounds if index @ else drop drop 0 end ;
+	: dec ( a -- )
+		size dup @ 1- 0 max swap ! ;
 
-	: set ( n i a -- )
-		bounds if index ! else drop drop end ;
+	: push ( n a -- )
+		dup inc last ! ;
 
-	: dump ( a -- )
-		dup at! size @
-		at "array %x\n" print
-		for
-			i at get
-			i " %d => %d\n" print
-		end ;
+	: pop ( a -- n )
+		dup size @ if dup last @ swap dec else drop 0 end ;
 
-	: grow ( n a -- )
-		at! dup at size @ + 0 max my!
-		at data @ my 1+ cells resize at data ! my at size !
-		0 max for 0 at size @ 1- i - at set end ;
+	: top ( a -- n )
+		dup size @ if last @ else drop 0 end ;
 
-	: ins ( n i a -- )
-		bounds
-		if
-			at! my! my at index dup cell+
-			at size @ my - 1- 0 max move
-			my at set
-		else
-			drop drop drop
-		end ;
+	: base ( a -- b )
+		data @ ;
 
-	: del ( i a -- n )
-		bounds
-		if
-			at! my! my at get
-			my at index dup cell+ swap
-			at size @ my - 0 max move
-		else
-			drop drop 0
-		end ;
+	: depth ( a -- n )
+		size @ ;
 
-	: construct ( n a -- )
-		at! dup at size ! cells allocate at data ! ;
+	create here fields allot cell allocate swap data ! does ;
 
-	: destruct ( a -- )
-		data @ free ;
-
-	create here fields allot construct does
-;
-
-: accept ( buf lim -- flag )
+: sort ( xt a n -- )
 
 	static vars
-
-		0 value tib
-		0 value lim
-		0 value caret
-		0 array input
-
-		'drop 256 vector ekeys
-		create escseq 100 allot
-
+		0 value cmp
 	end
 
-	: escape ( vector -- flag )
+	: mid ( l r -- mid )
+		over - 2/ cell neg and + ;
 
-		: lone-key? ( -- f )
-			0 50 for key? or dup until 1000 usec end 0= ;
+	: exch ( a1 a2 -- )
+		dup @ push over @ swap ! pop swap ! ;
 
-		: read-seq ( a -- c )
-			at! key my! my c!+ my 91 =
-			if
-				begin
-					key dup c!+ dup while
-					dup 63 > over 127 < and until
-					drop
-				end
-				my!
-			end
-			0 c!+ my ;
+	: part ( l r -- l r r2 l2 )
+		2dup mid @ push
+		2dup
+		begin
+			swap begin dup @ top  cmp execute while cell+ end
+			swap begin top over @ cmp execute while cell- end
+			2dup <= if 2dup exch push cell+ pop cell- end
+			2dup > until
+		end
+		pop drop ;
 
-		at! lone-key? if false exit end
-		escseq dup read-seq at vector:run true ;
+	: qsort ( l r -- )
+		part swap rot
+		2dup < if qsort else 2drop end
+		2dup < if qsort else 2drop end ;
 
-	: caret+ ( -- )
-		caret 1+ lim 1- min to caret ;
+	rot to cmp dup 1 > if 1- cells over + qsort else 2drop end ;
 
-	: caret- ( -- )
+: edit ( -- )
+
+	static vars
+		0 value caret
+		0 value input
+		0 value limit
+		create escseq 50 allot
+	end
+
+	: escape ( -- c )
+
+		: last ( -- c )
+			 escseq dup dup count + 1- max c@ ;
+
+		: read ( -- )
+			 key escseq dup count + at! c!+ 0 c!+ ;
+
+		: done? ( -- f )
+			 last dup `@ >= swap `~ <= and ;
+
+		: start? ( -- f )
+			 last `[ = ;
+
+		: more ( -- )
+			 read start? if begin read done? until end end ;
+
+		: more? ( -- f )
+			 0 50 for key? or dup until 1000 usec end ;
+
+		"\e" escseq place more? if more end last ;
+
+	: escseq? ( s -- f )
+		escseq 1+ dup count compare 0= ;
+
+	: length ( -- n )
+		input count ;
+
+	: point ( -- a )
+		input caret + ;
+
+	: home ( -- )
+		0 to caret ;
+
+	: away ( -- )
+		input count to caret ;
+
+	: ins ( c -- )
+		point dup dup 1+ place c! ;
+
+	: del ( --  c )
+		point at! at c@ dup if at 1+ at place end ;
+
+	: tilde ( -- )
+		"[1~" escseq? if home exit end
+		"[7~" escseq? if home exit end
+		"[4~" escseq? if away exit end
+		"[8~" escseq? if away exit end
+		"[3~" escseq? if del  exit end ;
+
+	: left ( -- )
 		caret 1- 0 max to caret ;
 
-	: addc ( c -- )
-		caret input.set caret+ ;
+	: right ( -- )
+		caret 1+ length min to caret ;
 
-	: bakc ( -- )
-		caret- 0 addc caret- ;
+	static vars
+		256 array ekeys
+		'right `C ekeys !
+		'left  `D ekeys !
+		'tilde `~ ekeys !
+	end
 
-	: draw ( -- )
-		"\e8\e[?25l\e[K" type
-		lim
-		for
-			i input.get my!
-			my while my emit
-		end
-		"\e[K\e[?25h" type ;
+	: start ( buf lim -- )
+		to limit to input length to caret ;
 
-	: listen ( -- )
+	: show ( -- )
+		input type "\e[K" type length caret - dup if dup "\e[%dD" print end drop ;
 
-		caret
-		for
-			tib i + c@ my! my while
-			my i input.set
-		end
+	: step ( -- c )
+
+		key my!
 
 		begin
-			draw
-			key my!
+
+			my while
+			my 10 = until
 
 			my 27 =
-			if	ekeys escape 0=
-				if
-					false exit
-				end
-				next
+			if
+				escape
+				ekeys @ execute
+				leave
 			end
 
-			my 127 = my 8 = or
-			if	bakc
-				next
+			my 8 = my 127 = or
+			if
+				left del drop
+				leave
 			end
 
-			my 31 > my 127 < and
-			if	my addc
-				next
+			length limit <
+			my 31 > and my 127 < and
+			if
+				my ins right
+				leave
 			end
-
-			my 10 = until
 		end
+		my ;
 
-		tib at! lim 1-
-		for
-			i input.get my!
-			my while my c!+
+	: stop ( -- len )
+		input count ;
+;
+
+: accept ( buf lim -- len )
+	"\e7" type
+	edit:start
+	begin
+		"\e8" type
+		edit:show
+		edit:step my!
+		my 27 =
+		"" edit:escseq? and
+		if
+			0 edit:input !
+			leave
 		end
-		0 c!+ true ;
-
-	to lim to tib lim input.grow
-	"\e7" type \ save cursor
-
-	tib count to caret
-
-	listen
-
-	lim neg input.grow ;
+		my 10 = until
+	end
+	edit:stop ;
 
