@@ -42,11 +42,12 @@
 \ | /            | Search for text by posix regex            |
 \ | n            | Search for next occurrence                |
 \ | \            | Set replacement text                      |
-\ | r            | Replace current search match              |
+\ | v            | Replace current search match              |
 \ | m            | Mark the current line                     |
 \ | y            | Copy from mark to current line            |
 \ | d            | Copy and delete from mark to current line |
 \ | p            | Paste copied text after current line      |
+\ | g            | Go to the marked line                     |
 \ | :            | Access the Forth shell                    |
 \ | Insert       | Enter INSERT mode (same as 'i')           |
 \ ------------------------------------------------------------
@@ -81,56 +82,208 @@
 \ | r[beta]      | Current replace string is "beta"          |
 \ ------------------------------------------------------------
 
-\ ***** Globals *****
+ 0 value file
+ 0 value caret
+ 0 value size
+ 0 value mode
+-1 value marker
+ 4 value tabsize
 
- 10 value \n
- 13 value \r
- 32 value \s
-  9 value \t
- 27 value \e
-  8 value \b
-  0 value mode
-  5 value tabsize
- 20 array undo-lifo
- 20 array redo-lifo
+10 value \n
+13 value \r
+ 9 value \t
+27 value \e
+ 8 value \b
+32 value \s
 
-"HOME" getenv "%s/.redclip"
+create name   100 allot
+create tmp    100 allot
+
+"HOME" getenv "%s/.reclip"
 format string clipboard
 
-create message 100 allot
-
-\ ***** Utility Words *****
+stack undos
+stack redos
 
 : copy ( a -- b )
 	dup count 1+ allocate tuck place ;
 
-: ncopy ( a n -- b )
-	my! at! my 1+ allocate at over my cmove 0 over my + c! ;
-
-: match? ( subject pattern -- f )
+: match? ( s p -- f )
 	match nip ;
 
-: msec ( n -- )
-	1000 * usec ;
+: white? ( c -- f )
+	dup \s = swap \t = or ;
 
-: ==  ( s1 s2 -- f )
-	compare 0= ;
+: cscan ( a c -- a' )
+	my! begin dup c@ dup my = swap 0= or until 1+ end ;
 
-\ ***** Theme Colors *****
+: cskip ( a c -- a' )
+	my! begin dup c@ my = while 1+ end ;
 
-0 value fg-normal
-0 value fg-comment
-0 value fg-string
-0 value fg-number
-0 value fg-keyword
-0 value fg-coreword
-0 value fg-variable
-0 value fg-define
-0 value fg-status
-0 value bg-normal
-0 value bg-active
-0 value bg-marked
-0 value bg-status
+: rows ( -- n )
+	max-xy nip ;
+
+: cols ( -- n )
+	max-xy drop ;
+
+: undo! ( -- )
+	undos.top file 0 compare if file copy undos.push end ;
+
+: redo! ( -- )
+	redos.top file 0 compare if file copy redos.push end ;
+
+: expand ( -- )
+	size 1+ to size file size 1+ resize to file ;
+
+: shrink ( -- )
+	size 1- to size caret size min 0 max to caret ;
+
+: point ( -- a )
+	file caret + ;
+
+: char ( -- c )
+	point c@ ;
+
+: line ( -- n )
+	0 file at! caret for c@+ \n = if 1+ end end ;
+
+: insert ( c -- )
+	expand point dup 1+ place point c! ;
+
+: remove ( -- c )
+	char caret size < if point dup 1+ swap place shrink end ;
+
+: left ( -- )
+	caret 1- 0 max to caret ;
+
+: right ( -- )
+	caret 1+ size min to caret ;
+
+: home ( -- )
+	caret for left char \n = until end caret 0> if right end ;
+
+: away ( -- )
+	point \n cscan file - to caret ;
+
+: position ( -- n )
+	caret home caret over to caret - ;
+
+: reposition ( n -- )
+	home for caret size < while char \n = until right end ;
+
+: up ( -- )
+	position home left reposition ;
+
+: down ( -- )
+	position away right reposition ;
+
+: pgup ( -- )
+	rows 2/ for up end ;
+
+: pgdown ( -- )
+	rows 2/ for down end ;
+
+: inserts ( text -- )
+	at! caret begin c@+ dup while insert right end drop to caret ;
+
+: mark ( -- )
+	caret home caret to marker to caret ;
+
+: unmark ( -- )
+	-1 to marker ;
+
+: remark ( -- )
+	marker 0< if mark end marker ;
+
+: range ( -- n )
+	remark away right caret over over min to caret - abs unmark ;
+
+: clip ( s -- )
+	clipboard blurt drop ;
+
+: yank ( -- )
+	caret here dup at! away range for char c!+ right end 0 c!+ clip to caret ;
+
+: paste ( -- )
+	undo! away right clipboard slurp dup inserts free ;
+
+: delete ( -- )
+	undo! here dup at! away range for remove c!+ end 0 c!+ clip ;
+
+: rename ( name -- )
+	name place ;
+
+: close ( -- )
+	0 to caret unmark 0 to size 0 file c! ;
+
+: read ( -- )
+	name slurp inserts ;
+
+: open ( name -- )
+	close rename read ;
+
+: write ( -- )
+	file name blurt drop ;
+
+: revert ( s -- )
+	caret swap close inserts size min to caret ;
+
+: undo ( -- )
+	redo! undos.pop dup if revert else drop end ;
+
+: redo ( -- )
+	undo! redos.pop dup if revert else drop end ;
+
+create srch 100 allot
+create repl 100 allot
+
+: stringlit ( s -- a )
+	sys:source @ swap "/%s/" format sys:source ! sys:sparse swap sys:source ! ;
+
+: search ( -- )
+
+	: goto ( a -- )
+		file - size min 0 max to caret ;
+
+	srch stringlit tmp place
+
+	right
+	point tmp match if goto exit end drop
+	file  tmp match if goto exit end drop
+	left ;
+
+: replace ( -- )
+	point srch stringlit match swap point = and
+	if
+		undo! point dup srch stringlit split
+		drop swap place repl stringlit inserts
+	end ;
+
+: blat ( s -- )
+	here swap place, create , does @ type ;
+
+"\e[K"    blat erase
+"\e[?25h" blat cursor-on
+"\e[?25l" blat cursor-off
+"\e7"     blat cursor-save
+"\e8"     blat cursor-back
+"\e[?7h"  blat wrap-on
+"\e[?7l"  blat wrap-off
+
+\ Default 16 color mode
+"\e[39;22m" blat fg-normal
+"\e[34;22m" blat fg-comment
+"\e[35;22m" blat fg-string
+"\e[36;22m" blat fg-number
+"\e[33;22m" blat fg-keyword
+"\e[39;22m" blat fg-coreword
+"\e[39;22m" blat fg-variable
+"\e[31;22m" blat fg-define
+"\e[39;22m" blat fg-status
+"\e[49;22m" blat bg-normal
+"\e[49;1m"  blat bg-active
+"\e[47;22m" blat bg-marked
+"\e[49;1m"  blat bg-status
 
 : colors ( -- )
 
@@ -171,695 +324,571 @@ create message 100 allot
 		xterm-color 48 escseq ;
 
 	\ xterm 256-color mode
-	"TERM" getenv "256color" match?
+	"TERM"      getenv "256color"       match?
+	"COLORTERM" getenv "gnome-terminal" match? or
 	if
-		D8h D8h D8h fg-256 to fg-normal
-		82h AAh 8Ch fg-256 to fg-comment
-		C8h 91h 91h fg-256 to fg-string
-		8Ch C8h C8h fg-256 to fg-number
-		F0h DCh AFh fg-256 to fg-keyword
-		D8h D8h D8h fg-256 to fg-coreword
-		D4h C4h A9h fg-256 to fg-variable
-		F0h F0h 8Ch fg-256 to fg-define
-		FFh FFh FFh fg-256 to fg-status
-		30h 30h 30h bg-256 to bg-normal
-		40h 40h 40h bg-256 to bg-active
-		40h 40h 40h bg-256 to bg-marked
-		00h 00h 00h bg-256 to bg-status
-		exit
-	end
 
-	\ Default 16 color mode
-	"\e[39;22m" to fg-normal
-	"\e[34;22m" to fg-comment
-	"\e[35;22m" to fg-string
-	"\e[36;22m" to fg-number
-	"\e[33;22m" to fg-keyword
-	"\e[39;22m" to fg-coreword
-	"\e[39;22m" to fg-variable
-	"\e[31;22m" to fg-define
-	"\e[39;22m" to fg-status
-	"\e[49;22m" to bg-normal
-	"\e[49;1m"  to bg-active
-	"\e[47;22m" to bg-marked
-	"\e[49;1m"  to bg-status ;
+		: re ( s xt -- )
+			sys:xt-body @ @ ! ;
 
-colors
-
-\ ***** ANSI Escape Sequences *****
-
-create last_fg 20 allot
-create last_bg 20 allot
-
-: fg ( s -- )
-	dup last_fg place type ;
-
-: bg ( s -- )
-	dup last_bg place type ;
-
-: fgbg ( -- )
-	last_fg type last_bg type ;
-
-: erase ( -- )
-	"\e[K" type ;
-
-: cursor ( state -- )
-	if "\e[?25h" else "\e[?25l" end type ;
-
-: wrap ( state -- )
-	if "\e[?7h" else "\e[?7l" end type ;
-
-: white? ( c -- f )
-	dup \s = swap \t = or ;
-
-: printable? ( c -- f )
-	my! my 31 > my 127 < and my 9 = or ;
-
-\ ***** File Handling *****
-
-0 value file
-0 value length
-0 value syntax
-create name 100 allot
-
-static syntax
-	enum PLAIN
-	enum REFORTH
-	enum PHP
-end
-
-: load ( text -- )
-	file free copy dup to file count to length ;
-
-: rename ( name -- )
-
-	name place
-
-	: syntax? ( syn ext -- f )
-		"\.%s$" format name swap match? if to syntax true else drop false end ;
-
-	begin
-		REFORTH "fs"  syntax? until
-		PHP     "php" syntax? until
-
-		PLAIN to syntax
-		leave
+		D8h D8h D8h fg-256 'fg-normal   re
+		82h AAh 8Ch fg-256 'fg-comment  re
+		C8h 91h 91h fg-256 'fg-string   re
+		8Ch C8h C8h fg-256 'fg-number   re
+		F0h DCh AFh fg-256 'fg-keyword  re
+		D8h D8h D8h fg-256 'fg-coreword re
+		D4h C4h A9h fg-256 'fg-variable re
+		F0h F0h 8Ch fg-256 'fg-define   re
+		FFh FFh FFh fg-256 'fg-status   re
+		30h 30h 30h bg-256 'bg-normal   re
+		40h 40h 40h bg-256 'bg-active   re
+		40h 40h 40h bg-256 'bg-marked   re
+		00h 00h 00h bg-256 'bg-status   re
 	end ;
-
-: save ( -- )
-	file name blurt drop ;
-
-: open ( name -- )
-	rename name slurp load ;
-
-: redo! ( -- )
-	redo-lifo.size @ 1- redo-lifo.get free file copy 0 redo-lifo.ins ;
-
-: undo! ( -- )
-	undo-lifo.size @ 1- undo-lifo.get free file copy 0 undo-lifo.ins ;
-
-: redo ( -- )
-	undo! 0 redo-lifo.del dup if dup load end free ;
-
-: undo ( -- )
-	redo! 0 undo-lifo.del dup if dup load end free ;
-
-\ ***** Caret Manipulation *****
-
-0 value caret
-0 value caret-row
-0 value caret-col
-
-: pointer ( -- a )
-	file caret + ;
-
-: current ( -- c )
-	pointer c@ ;
-
-: sanity ( -- )
-	caret 0 max length min to caret ;
-
-: right ( -- )
-	caret 1+ length min to caret ;
-
-: left ( -- )
-	caret 1- 0 max to caret ;
-
-: length+ ( n -- )
-	file swap length + dup to length 1+ resize to file ;
-
-: length- ( n -- )
-	length swap - 0 max to length sanity ;
-
-: previous ( -- c )
-	pointer file = if 0 else pointer 1- c@ end ;
-
-: home ( -- )
-	caret for left current \n = until end caret 0> if right end ;
-
-: ending ( -- )
-	length caret - for current \n = until right end ;
-
-: position ( -- n )
-	caret home caret over to caret - ;
-
-: reposition ( n -- )
-	home for current \n = until right end ;
-
-: up ( -- )
-	position home left reposition ;
-
-: down ( -- )
-	position ending right reposition ;
-
-: pgup ( -- )
-	max-xy nip 2/ for up end ;
-
-: pgdown ( -- )
-	max-xy nip 2/ for down end ;
 
 : status ( -- )
-	max-xy my! drop 0 my at-xy fg-status fg bg-status bg ;
-
-\ ***** Text Manipulation *****
-
--1 value marked
-
-: insert ( c -- )
-	1 length+ pointer dup dup 1+ place c! ;
-
-: remove ( -- c )
-	pointer c@ caret length < if pointer 1+ pointer place 1 length- end ;
-
-: unmark ( -- )
-	-1 to marked ;
-
-: mark ( -- )
-	caret home caret to marked to caret ;
-
-: remark ( -- )
-	marked 0< if mark exit end
-	marked caret > if home caret marked to caret to marked end ;
-
-: inject ( str -- )
-	at! undo! caret ending right at count my! my length+
-	pointer dup dup my + place at swap my cmove to caret ;
-
-: paste ( -- )
-	clipboard slurp at! at if at inject at free down end ;
-
-: yank ( -- )
-	remark caret marked file + at! ending right
-	at caret marked - ncopy dup clipboard blurt drop
-	free to caret unmark ;
-
-: delete ( -- )
-	undo! remark
-	marked file + at! ending right caret marked - my!
-	at my ncopy dup clipboard blurt drop free
-	pointer at place my length-
-	marked to caret unmark ;
-
-: complete ( -- )
-
-	: go ( c -- )
-		right insert left ;
-
-	current `" = previous space? and
-	if `" go exit end
-
-	current `: = previous space? and
-	if `; go \s go exit end
-
-	current `( = previous space? and
-	if `) go \s go exit end ;
-
-\ ***** Search and Replace *****
-
-create pattern 100 allot
-create target  100 allot
-create source  100 allot
-
-: pattern@ ( s -- a )
-	sys:source @ at! sys:source ! sys:sparse at sys:source ! ;
-
-: target@ ( -- a )
-	pattern target "\e%s\e" format pattern@ over place ;
-
-: source@ ( -- a )
-	pattern source "\e%s\e" format pattern@ over place ;
-
-: search ( -- )
-
-	: goto ( a -- )
-		file - to caret ;
-
-	right
-
-	pointer target@ match if goto exit end drop
-	file    target@ match if goto exit end drop
-
-	left ;
-
-: replace ( -- )
-	pointer target@ match swap pointer = and
-	if
-		undo! pointer copy at! at target@ split drop
-		at - for remove drop end at free source@ at!
-		begin c@+ dup while insert right end drop
-	end ;
-
-\ ***** Housekeeping *****
-
-: clean ( -- )
-	caret 0 to caret
-	begin
-		caret length < while ending
-		begin
-			left current white? while
-			remove drop caret over < if 1- end
-		end
-		right right
-	end
-	to caret ;
-
-: indent ( -- )
-
-	static vars
-		create pad 100 allot
-	end
-
-	: indent? ( c -- )
-		dup white? swap `\ = or ;
-
-	: indent@ ( -- )
-		pad at! 99 for current indent? while current c!+ right end 0 c!+ ;
-
-	: indent! ( -- )
-		pad at! begin c@+ my! my while my insert right end ;
-
-	caret up home indent@ to caret indent! ;
-
-\ ***** Command Interpreter *****
+	fg-status bg-status 0 rows at-xy ;
 
 create input 100 allot
 
-: prompt ( s -- f )
-	status erase type 0 input ! input 100 accept ;
+: menu ( options -- item )
+
+	static vars
+		0 value select
+		0 value options
+	end
+
+	to options 0 to select 0 input !
+
+	: eol ( a -- a' )
+		\n cscan ;
+
+	: sol ( a -- a' )
+		\n cskip ;
+
+	: hit? ( a -- f )
+		input dup count compare 0= ;
+
+	: hit+ ( a -- a' )
+		input c@ if begin dup c@ while dup hit? until eol sol end end ;
+
+	: input! ( a n -- )
+		my! input my cmove 0 input my + c! ;
+
+	: hit! ( -- )
+		options hit+ select for eol hit+ end at! at eol at - my! my if at my input! end ;
+
+	: sel! ( -- )
+		options select for eol sol end dup eol over - input! ;
+
+	: hits ( -- n )
+		0 options begin hit+ at! at c@ while 1+ at eol sol end ;
+
+	: items ( -- n )
+		0 options begin at! at c@ while 1+ at eol sol end ;
+
+	: item. ( a i -- )
+		select = if bg-active end space at! at eol at - for c@+ emit end space bg-status ;
+
+	: draw ( -- n )
+		space space options begin hit+ dup c@ while dup i item. eol sol end drop ;
+
+	: select+ ( n -- )
+		select + input c@ if hits else items end 1- min 0 max to select ;
+
+	input 100 edit:start
+	begin
+		status "menu> " type edit:show
+		cursor-save draw cursor-back
+
+		edit:step my!
+
+		my \e =
+		if
+			edit:escseq dup count 1- + c@ my!
+			my \e = if 0 edit:input ! leave end
+
+			edit:away
+			my `C = if  1 select+ next end
+			my `D = if -1 select+ next end
+
+			next
+		end
+
+		my \n =
+		if
+			input c@ 0<> hits 0> and if hit! leave end
+			input c@ 0= if sel! leave end
+			leave
+		end
+	end
+	edit:stop drop input ;
+
+: listen ( s -- f )
+	status type 0 input ! input 100 accept ;
 
 : command ( -- )
-	"> " prompt if true wrap \s emit input evaluate drop end ;
+	"> " listen if wrap-on space input evaluate drop end ;
 
-\ ***** Screen Rendering *****
+: srch! ( -- )
+	"search> " listen if input srch place end ;
+
+: repl! ( -- )
+	"replace> " listen if input repl place end ;
+
+: put ( c -- )
+	drop ;
+
+\ Hooks
+
+: huh ( -- ) ;
+: indent   ( -- ) ;
+: complete ( -- a ) "notags!" ;
+: syntax   ( -- ) ;
+: clean    ( -- ) ;
+
+: default ( -- )
+
+	: syn ( -- )
+		char put right ;
+
+	: ind ( -- )
+		caret up home tmp at!
+		begin char white? while char c!+ right end
+		0 c!+ to caret tmp at!
+		begin c@+ dup while insert right end drop ;
+
+	: rtrim ( -- )
+		caret
+		0 to caret
+		begin
+			char while away 0
+			begin left char white? while 1+ end
+			right my! my for remove drop end
+			caret over < if my - end right
+		end
+		to caret ;
+
+	: com ( -- a )
+
+		static vars
+			stack words
+		end
+
+		: keep ( s -- )
+			at! words.depth
+			for
+				i cells words.base + @ at at count compare 0=
+				if exit end
+			end
+			at copy words.push ;
+
+		begin
+			words.depth while
+			words.pop free
+		end
+
+		file copy dup at!
+		begin
+			at c@ while
+			at "\s+" split
+			at keep swap at! while
+		end
+		free
+
+		: cmp ( s1 s2 -- f )
+			dup count compare 0< ;
+
+		'cmp words.base words.depth sort
+
+		here
+		words.depth
+		for
+			i cells words.base + @
+			dup count push over place pop +
+			at! \n c!+ at
+		end
+		drop here ;
+
+	'ind is indent
+	'rtrim is clean
+	'com is complete
+	'syn is syntax ;
+
+: reforth ( -- )
+
+	: syn ( -- )
+
+		: shunt ( -- )
+			char put right ;
+
+		: cword? ( c -- )
+			point at! c@+ = c@+ space? and ;
+
+		: whites ( -- )
+			begin char while char space? while shunt end ;
+
+		: comment ( -- )
+			whites begin char while char shunt `) = until end ;
+
+		: comment2 ( -- )
+			begin char while char \n = until shunt end ;
+
+		: word ( -- )
+			whites begin char while char space? until shunt end ;
+
+		: string ( -- )
+			shunt begin char my! my while shunt my `" = until my `\ = if shunt end end ;
+
+		whites char 0= if exit end
+
+		`( cword?
+		if fg-comment comment exit end
+
+		`\ cword?
+		if fg-comment comment2 exit end
+
+		`" char =
+		if fg-string string exit end
+
+		point "^:\s+[^[:blank:]]+" match?
+		if fg-keyword word fg-define word exit end
+
+		point "^(if|else|end|for|i|begin|while|until|exit|leave|next|value|variable|create|does|record|field|static|;)\s" match?
+		if fg-keyword word exit end
+
+		point "^[-]?[0-9a-fA-F]+[hb]?\s" match?
+		if fg-number word exit end
+
+		fg-normal word ;
+
+	default
+	'syn is syntax ;
+
+: php ( -- )
+
+	: syn ( -- )
+
+		: shunt ( -- )
+			char put right ;
+
+		: name? ( c -- f )
+			my! my alpha? my digit? my `_ = or or ;
+
+		: whites ( -- )
+			begin char while char space? while shunt end ;
+
+		: comment ( -- )
+			begin char while char \n = until shunt end ;
+
+		: word ( -- )
+			whites begin char name? while shunt end ;
+
+		: string ( delim -- )
+			char shunt begin char my! my while shunt my over = until my `\ = if shunt end end drop ;
+
+		whites char 0= if exit end
+		point at! c@+ my!
+
+		my `/ = at c@ `/ = and
+		if fg-comment comment exit end
+
+		my `" = my `' = or
+		if fg-string string exit end
+
+		my `$ =
+		if fg-variable shunt word exit end
+
+		point "^(function|class)\s+[^[:blank:]]+" match?
+		if fg-keyword word fg-define word exit end
+
+		point "^(if|else|elsif|for|foreach|while|function|class|return|var)[^a-zA-Z0-9_]" match?
+		if fg-keyword word exit end
+
+		point "^[-]{0,1}(0x|[0-9]){1}[0-9a-fA-F]*" match?
+		if fg-number word exit end
+
+		fg-normal
+
+		my name?
+		if word exit end
+
+		shunt ;
+
+	default
+	'syn is syntax ;
+
+: detect ( -- )
+	name "\.fs$"  match? if reforth exit end
+	name "\.php$" match? if php     exit end
+	default ;
 
 : display ( -- )
 
 	static vars
-
 		0 value row
 		0 value col
-		0 value rows
-		0 value cols
-
-		0 value from
-		0 value upto
-		0 value last
-		0 value line
-		0 value active
-		0 value counter
-		0 value discard
-		0 value handler
-
-		create pad 100 allot
-
+		0 value start
+		0 value sline
+		0 value cline
+		0 value mline
+		0 value cursor
+		0 value cur-row
+		0 value cur-col
 	end
 
+	: counter ( -- )
+		caret cursor = if col to cur-col row to cur-row end ;
+
 	: col+ ( -- )
-		col 1+ cols min to col ;
+		col 1+ to col ;
+
+	: spaces ( n -- )
+		for 32 emit col+ end ;
+
+	: bg ( -- )
+		sline row + dup cline = swap mline = or if bg-active else bg-normal end ;
 
 	: row+ ( -- )
-		erase cr row 1+ rows min to row 0 to col ;
+		row 1+ to row erase 0 to col \n emit bg ;
 
 	: tab+ ( -- )
-		tabsize col over mod - for \s emit col+ end ;
+		tabsize col tabsize mod - spaces ;
 
-	: last-row? ( -- f )
-		row rows 1- > ;
-
-	: last-col? ( -- f )
-		col cols 1- > ;
-
-	: discard- ( c -- )
-		\t = if tabsize else 1 end discard swap - 0 max to discard ;
-
-	: counter+ ( -- )
-		counter dup caret = if col to caret-col row to caret-row end 1+ to counter ;
-
-	: put ( c -- ) my! counter+
-		discard   if my discard- exit end
-		last-row? if             exit end
-		my \n =   if row+        exit end
-		last-col? if             exit end
-		my \t =   if tab+        exit end
+	: cput ( c -- ) my! counter
+		row rows = if      exit end
+		my \n    = if row+ exit end
+		col cols = if      exit end
+		my \t    = if tab+ exit end
 		my emit col+ ;
 
-	: put+ ( a -- a' )
-		dup c@ if dup c@ put 1+ end ;
+	'cput is put
 
-	: puts ( s -- )
-		at! begin c@+ dup while put end drop ;
+	    0 to row
+	    0 to col
+	caret to cursor
 
-	: bcolor ( -- )
-		counter active = if bg-active bg exit end
-		counter marked = if bg-marked bg exit end
-		bg-normal bg ;
+	: finish ( -- n )
+		start to caret rows for away right end caret 1- cursor to caret ;
 
-	: fcolor ( -- )
-		fg-normal fg ;
+	: restart ( rows -- )
+		home for left home end caret to start line to sline cursor to caret ;
 
-	: skip ( a -- a' )
-		begin dup c@ dup while dup white? while put 1+ end drop ;
+	: jump ( -- rows )
+		rows 2/ 2/ ;
 
-	: width ( a -- n )
-		at! 0 begin dup counter + caret = until c@+ my! my 0= my \n = or if drop 0 leave end 1+ end ;
+	begin
+		caret  start < if jump     restart leave end
+		finish caret < if jump 3 * restart leave end
+		leave
+	end
 
-	: plain ( a -- a' )
-		begin dup c@ my! my while my put 1+ my \n = until end ;
+	sline file start + at! caret start -
+	for c@+ \n = if 1+ end end to cline
 
-	: reforth ( a -- a' )
+	marker start >
+	marker start - rows cols * < and
+	if
+		sline file start + at! marker start -
+		for c@+ \n = if 1+ end end to mline
+	else
+		-1 to mline
+	end
 
-		: parse ( a -- a' )
-			0 pad ! pad at! begin dup c@ dup while dup space? until c!+ 1+ end drop 0 !+ ;
+	start to caret
+	col row at-xy
+	cursor-off wrap-off
+	fg-normal bg
 
-		: sparse ( a -- a' )
-			fg-string fg put+ at! begin c@+ dup while dup put dup `" = until `\ = if at put+ at! end end drop at ;
+	begin
+		char while
+		row rows < while
+		syntax
+	end
+	begin
+		row rows < while
+		row+
+	end
+	cursor to caret
 
-		: comment ( -- )
-			fg-comment fg pad puts ;
+	fg-status bg-status .s
+	mode if "-- INSERT --" else "-- COMMAND --" end type
+	cur-col cline " %d,%d" print
+	srch c@ if srch " s[%s]" print end
+	repl c@ if repl " r[%s]" print end
 
-		: comment1 ( a -- a' )
-			comment begin dup c@ while skip dup c@ \n = until parse pad puts pad c@ `) = until end ;
-
-		: comment2 ( a -- a' )
-			comment begin dup c@ dup while dup \n = until put 1+ end drop ;
-
-		: colon ( a -- a' )
-			skip parse fg-define fg pad puts ;
-
-		: color ( -- )
-
-			: go ( r g b -- )
-				fg pad puts ;
-
-			: is ( c -- f )
-				pad at! c@+ = c@+ 0= and ;
-
-			`( is if comment1 exit end
-			`\ is if comment2 exit end
-
-			\ detect colon definitions
-			`: is if fg-keyword go colon exit end
-
-			pad "^(:|;|if|else|end|exit|begin|for|while|until|value|record|static|field|create|next|leave|array|vector)$" match? if fg-keyword go exit end
-			pad number nip if fg-number go exit end
-			fg-normal go ;
-
-		: word ( a -- a' )
-			skip dup c@ `" = if sparse else parse color end ;
-
-		: width ( a -- n )
-			at! 0 begin dup counter + caret = until c@+ my! my 0= my \n = or if drop 0 leave end 1+ end ;
-
-		begin skip dup c@ while dup c@ \n = if 1+ leave end word end \n put ;
-
-	: php ( a -- a' )
-
-		: cnum? ( c -- f )
-			my! my digit? my hex? or ;
-
-		: cname? ( c -- f )
-			my! my alpha? my digit? my `_ = my `$ = or or or ;
-
-		: quote? ( c -- f )
-			dup `" = swap `' = or ;
-
-		: comment? ( a -- a f )
-			dup "^//" match? ;
-
-		: keyword? ( a -- a f )
-			dup "^(function|class|if|else|elsif|for|foreach|while|switch|case|return|array|continue|break|catch|try|throw)\s*[[:punct:]]" match? ;
-
-		: variable? ( a -- a f )
-			dup c@ `$ = ;
-
-		: number? ( a -- a f )
-			dup c@ digit? ;
-
-		: string? ( a -- a f )
-			dup c@ quote? ;
-
-		: define? ( a -- a f )
-			dup "^(function|class)\s+[[:alpha:]]+" match? ;
-
-		: parse ( a -- a' )
-			begin dup c@ dup while dup cname? while put 1+ end drop ;
-
-		: nparse ( a -- a' )
-			begin dup c@ dup while dup cnum? while put 1+ end drop ;
-
-		: sparse ( a -- a' )
-			put+ begin dup c@ my! my while 1+ my put my quote? until my `\ = if put+ end end ;
-
-		: define ( a -- a' )
-			fg-keyword fg parse skip fg-define fg parse ;
-
-		begin
-			skip dup c@ my! my while
-			comment?  if fg-comment  fg plain  fg-normal fg leave end
-			define?   if                define fg-normal fg next  end
-			variable? if fg-variable fg parse  fg-normal fg next  end
-			keyword?  if fg-keyword  fg parse  fg-normal fg next  end
-			number?   if fg-number   fg nparse fg-normal fg next  end
-			string?   if fg-string   fg sparse fg-normal fg next  end
-			my alpha? if                parse               next  end
-			my put 1+ my \n = until
-		end ;
-
-	: setup ( -- a )
-
-		0 to row 0 to col
-		max-xy to rows to cols
-
-		col row at-xy
-		false wrap false cursor
-
-		: syntax? ( xt n -- )
-			syntax = if to handler true else drop false end ;
-
-		begin
-			'reforth REFORTH syntax? until
-			'php     PHP     syntax? until
-			'plain to handler        leave
-		end
-
-		: jump ( -- n )
-			rows 2/ 2/ ;
-
-		caret my!
-		begin
-			home caret to active my to caret
-
-			\ can we skip recalc of display boundaries?
-			caret last <> while
-			caret last < caret from > and until
-			caret last > caret upto < and upto from > and until
-
-			\ caret has moved off screen. recalc screen boundaries
-			caret from > if rows jump - else jump end
-			home for up end caret to from my to caret
-			0 file at! from for c@+ \n = if 1+ end end to line
-			leave
-		end
-		-1    to caret-col
-		-1    to caret-row
-		caret to last
-		from  to counter
-
-		file from + ;
-
-	: draw ( a -- a' )
-		begin
-			bcolor fcolor dup width cols - 0 max to discard
-			handler execute row rows < while dup c@ while
-		end ;
-
-	: cleanup ( a -- )
-		dup file - to upto bcolor \n put skip drop bg-normal bg
-		rows row - 0 max for erase cr end ;
-
-	: caret-line ( -- n )
-		line from file + at! caret from - for c@+ \n = if 1+ end end ;
-
-	: status-line ( -- )
-		status .s
-		mode if "-- INSERT --" else "-- COMMAND --" end type
-		position caret-line " %d,%d" print
-		target c@ if target " s[%s]" print end
-		source c@ if source " r[%s]" print end
-		message " %s" print
-		erase ;
-
-	: place-caret
-		true cursor caret-col caret-row at-xy ;
-
-	setup draw cleanup status-line place-caret ;
-
-\ ***** Program Main Loop *****
-
-: cycle ( -- )
+	erase cur-col cur-row at-xy cursor-on ;
 
 
-	: imode ( -- ) undo! true to mode ;
-	: cmode ( -- ) false to mode clean unmark ;
+: main ( -- )
 
-	: ekey_right ( e -- ) drop right  ;
-	: ekey_left  ( e -- ) drop left   ;
-	: ekey_up    ( e -- ) drop up     ;
-	: ekey_down  ( e -- ) drop down   ;
-	: ekey_home  ( e -- ) drop home   ;
-	: ekey_end   ( e -- ) drop ending ;
+	: imode ( -- )
+		undo! 1 to mode unmark ;
 
-	: key_del    ( -- ) remove drop ;
-	: key_back   ( -- ) left key_del ;
-	: key_enter  ( -- ) \n insert right indent ;
-	: key_o      ( -- ) ending imode key_enter ;
+	: cmode ( -- )
+		0 to mode clean unmark ;
 
-	: ekey_tilde ( escseq -- ) at!
-		at "[1~" == if home    exit end
-		at "[7~" == if home    exit end
-		at "[4~" == if ending  exit end
-		at "[2~" == if cmode   exit end
-		at "[3~" == if key_del exit end
-		at "[5~" == if pgup    exit end
-		at "[6~" == if pgdown  exit end ;
+	: enter ( -- )
+		\n insert right indent ;
 
-	: ekey_idiots ( e -- )
-		drop key `H = if home else ending end ;
+	: tab ( -- )
+		\t insert right ;
 
-	: com_search  ( -- ) "search> "  prompt if input target place search end ;
-	: com_replace ( -- ) "replace> " prompt if input source place end ;
+	: del ( -- )
+		remove drop ;
 
-	: cekey_tilde ( escseq -- ) at!
-		at "[1~" == if home    exit end
-		at "[7~" == if home    exit end
-		at "[4~" == if ending  exit end
-		at "[2~" == if imode   exit end
-		at "[5~" == if pgup    exit end
-		at "[6~" == if pgdown  exit end ;
+	: back ( -- )
+		left del ;
+
+	: idiots ( -- )
+		edit:escseq dup count + 1- c@ `H = if home else away end ;
+
+	: search! ( -- )
+		srch! search ;
+
+	: replace! ( -- )
+		repl! ;
+
+	: newline ( -- )
+		away enter imode ;
+
+	: goto ( -- )
+		marker 1+ 0> if marker to caret end ;
+
+	: tagpick ( -- )
+		undo! complete menu dup inserts count for right end ;
+
+	: itilde ( -- )
+		"[1~" edit:escseq? if home   exit end
+		"[7~" edit:escseq? if home   exit end
+		"[4~" edit:escseq? if away   exit end
+		"[8~" edit:escseq? if away   exit end
+		"[2~" edit:escseq? if cmode  exit end
+		"[3~" edit:escseq? if del    exit end
+		"[5~" edit:escseq? if pgup   exit end
+		"[6~" edit:escseq? if pgdown exit end ;
+
+	: ctilde ( -- )
+		"[1~" edit:escseq? if home   exit end
+		"[7~" edit:escseq? if home   exit end
+		"[4~" edit:escseq? if away   exit end
+		"[8~" edit:escseq? if away   exit end
+		"[2~" edit:escseq? if imode  exit end
+		"[5~" edit:escseq? if pgup   exit end
+		"[6~" edit:escseq? if pgdown exit end ;
 
 	static vars
 
-		'drop 128 vector ekeys
-		'nop  128 vector keys
-		'drop 128 vector cekeys
-		'nop  128 vector ckeys
+		256 array ckey
+		256 array cekey
+		256 array ikey
+		256 array iekey
 
-		\ INSERT mode
-		'ekey_up     65 ekeys.set
-		'ekey_down   66 ekeys.set
-		'ekey_right  67 ekeys.set
-		'ekey_left   68 ekeys.set
-		'ekey_home   72 ekeys.set
-		'ekey_end    70 ekeys.set
-		'ekey_idiots 79 ekeys.set
-		'ekey_tilde 126 ekeys.set
+		'mark     `m ckey !
+		'yank     `y ckey !
+		'paste    `p ckey !
+		'delete   `d ckey !
+		'left     `h ckey !
+		'right    `l ckey !
+		'up       `k ckey !
+		'down     `j ckey !
+		'undo     `u ckey !
+		'redo     `r ckey !
+		'search!  `/ ckey !
+		'replace! `\ ckey !
+		'search   `n ckey !
+		'replace  `r ckey !
+		'imode    `i ckey !
+		'newline  `o ckey !
+		'goto     `g ckey !
+		'command  `: ckey !
+		'tagpick  \t ckey !
 
-		'key_back    \b keys.set
-		'key_back   127 keys.set
-		'key_enter   \n keys.set
+		'up      `A cekey !
+		'down    `B cekey !
+		'right   `C cekey !
+		'left    `D cekey !
+		'home    `H cekey !
+		'away    `F cekey !
+		'idiots  `O cekey !
+		'ctilde  `~ cekey !
 
-		\ COMMAND mode
-		'ekey_up     65 cekeys.set
-		'ekey_down   66 cekeys.set
-		'ekey_right  67 cekeys.set
-		'ekey_left   68 cekeys.set
-		'ekey_home   72 cekeys.set
-		'ekey_end    70 cekeys.set
-		'ekey_idiots 79 cekeys.set
-		'cekey_tilde 126 cekeys.set
+		'enter    \n ikey !
+		'tab      \t ikey !
+		'back     \b ikey !
+		'back    127 ikey !
 
-		'imode       `i ckeys.set
-		'imode       `I ckeys.set
-		'search      `n ckeys.set
-		'search      `N ckeys.set
-		'replace     `r ckeys.set
-		'replace     `R ckeys.set
-		'undo        `u ckeys.set
-		'undo        `U ckeys.set
-		'mark        `m ckeys.set
-		'mark        `M ckeys.set
-		'delete      `d ckeys.set
-		'delete      `D ckeys.set
-		'yank        `y ckeys.set
-		'yank        `Y ckeys.set
-		'paste       `p ckeys.set
-		'paste       `P ckeys.set
-		'key_o       `o ckeys.set
-		'key_o       `O ckeys.set
-		'command     `: ckeys.set
-		'com_search  `/ ckeys.set
-		'com_replace `\ ckeys.set
+		'up      `A iekey !
+		'down    `B iekey !
+		'right   `C iekey !
+		'left    `D iekey !
+		'home    `H iekey !
+		'away    `F iekey !
+		'idiots  `O iekey !
+		'itilde  `~ iekey !
 
 	end
 
 	begin
 		display
-		key my! my while
+		key my!
 
 		mode
 		if
 			my \e =
-			if	ekeys accept:escape
-				0= if cmode end
-				next
-			end
-
-			my printable?
 			if
-				my insert complete right
+				edit:escape my!
+				my \e =
+				if
+					cmode
+					next
+				end
+
+				my iekey @ execute
 				next
 			end
 
-			my keys.run
+			my 31 > my 127 < and
+			if
+				my insert right
+				next
+			end
+
+			my ikey @ execute
 			next
 		end
 
 		my \e =
-		if	cekeys accept:escape
-			0= if cmode end
+		if
+			edit:escape my!
+			my \e =
+			if
+				cmode
+				next
+			end
+
+			my cekey @ execute
 			next
 		end
 
-		my ckeys.run
-	end ;
+		my ckey @ execute
+	end
 
-\ ***** Short Commands *****
+;
 
 : q cr "\ec" type bye ;
-: w save ;
+: w write ;
 : wq w q ;
 : ? key drop ;
 
 : g ( line -- )
 	0 to caret for down end ;
 
-\ ***** Go! *****
 
-"HOME" getenv "%s/.redrc" format
-slurp dup push
-if top evaluate drop end
-pop free
+colors
+cell allocate to file
+1 arg if 1 arg open detect end
 
-"" load
-1 arg if 1 arg open end
-cycle
+"HOME" getenv "%s/.rerc" format included
+
+main

@@ -11,12 +11,10 @@ generic:
 shell:
 	./fstoc base.fs --turnkey shell.fs
 	$(CC) -DTURNKEY -DLIB_SHELL -DLIB_REGEX -DLIB_REGEX -DLIB_FORK $(CFLAGS) -o rf reforth.c
-	strip rf
 
 editor:
 	./fstoc base.fs --turnkey editor.fs
-	$(CC) -DTURNKEY -DLIB_SHELL -DLIB_REGEX $(CFLAGS) -o re reforth.c
-	strip re
+	$(CC) -DTURNKEY -DLIB_SHELL -DLIB_REGEX -DLIB_FORK $(CFLAGS) -o re reforth.c
 
 compress:
 	$(CC) -o fstoc fstoc.c $(CFLAGS)
