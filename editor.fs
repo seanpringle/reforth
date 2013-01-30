@@ -213,7 +213,7 @@ stack redos
 	here dup at! range for remove c!+ end 0 c!+ clip ;
 
 : rename ( name -- )
-	name place ;
+	name place name "\e]0;%s\a" print ;
 
 : close ( -- )
 	0 to caret unmark 0 to size 0 file c! ;
@@ -223,6 +223,9 @@ stack redos
 
 : open ( name -- )
 	close rename read ;
+
+: reopen ( -- )
+	close read ;
 
 : write ( -- )
 	file name blurt drop ;
@@ -426,6 +429,26 @@ create input 100 allot
 	end
 	edit:stop drop input ;
 
+: accept ( buf lim -- f )
+	"\e7" type
+	edit:start
+	begin
+		"\e8" type
+		edit:show
+		edit:step my!
+		my 27 =
+		"" edit:escseq? and
+		if
+			0 edit:input !
+			false leave
+		end
+		my 10 =
+		if
+			true leave
+		end
+	end
+	edit:stop drop ;
+
 : listen ( s -- f )
 	status type 0 input ! input 100 accept ;
 
@@ -448,6 +471,7 @@ create input 100 allot
 : complete ( -- a ) "notags!" ;
 : syntax   ( -- ) ;
 : clean    ( -- ) ;
+: gap?     ( c -- f ) white? ;
 
 : default ( -- )
 
@@ -602,7 +626,7 @@ create input 100 allot
 			begin char while char \n = until shunt end ;
 
 		: word ( -- )
-			whites begin char name? char `- = or while shunt end ;
+			whites begin char name? while shunt end ;
 
 		: string ( delim -- )
 			char shunt begin char my! my while shunt my over = until my `\ = if shunt end end drop ;
@@ -626,7 +650,7 @@ create input 100 allot
 		if fg-keyword word exit end
 
 		point "^[-]{0,1}(0x|[0-9]){1}[0-9a-fA-F]*" match?
-		if fg-number word exit end
+		if fg-number shunt word exit end
 
 		fg-normal
 
@@ -635,12 +659,71 @@ create input 100 allot
 
 		shunt ;
 
+	: gap ( c -- f )
+		my! my white? my `, = or my `. = or my `( = or my `) = or ;
+
 	default
+	'gap is gap?
+	'syn is syntax ;
+
+: c99 ( -- )
+
+	: syn ( -- )
+
+		: shunt ( -- )
+			char put right ;
+
+		: name? ( c -- f )
+			my! my alpha? my digit? my `_ = or or ;
+
+		: whites ( -- )
+			begin char while char space? while shunt end ;
+
+		: comment ( -- )
+			begin char while char \n = until shunt end ;
+
+		: word ( -- )
+			whites begin char name? while shunt end ;
+
+		: string ( delim -- )
+			char shunt begin char my! my while shunt my over = until my `\ = if shunt end end drop ;
+
+		whites char 0= if exit end
+		point at! c@+ my!
+
+		my `/ = at c@ `/ = and
+		if fg-comment comment exit end
+
+		my `" = my `' = or
+		if fg-string string exit end
+
+		my `# =
+		if fg-define shunt word exit end
+
+		point "^(if|else|elsif|for|while|return|int|char|void|typedef|struct|unsigned)[^a-zA-Z0-9_]" match?
+		if fg-keyword word exit end
+
+		point "^[-]{0,1}(0x|[0-9]){1}[0-9a-fA-F]*" match?
+		if fg-number shunt word exit end
+
+		fg-normal
+
+		my name?
+		if word exit end
+
+		shunt ;
+
+	: gap ( c -- f )
+		my! my white? my `, = or my `. = or my `( = or my `) = or ;
+
+	default
+	'gap is gap?
 	'syn is syntax ;
 
 : detect ( -- )
 	name "\.fs$"  match? if reforth exit end
 	name "\.php$" match? if php     exit end
+	name "\.c$"   match? if c99     exit end
 	default ;
 
 : display ( -- )
@@ -737,7 +820,7 @@ create input 100 allot
 		mode if "-- INSERT --" else "-- COMMAND --" end type
 		cur-col cline " %d,%d" print
 		srch c@ if srch " n[%s]" print end
-		repl c@ if repl " r[%s]" print end
+		srch c@ if repl " r[%s]" print end
 		erase ;
 
 	: cleanup ( -- )
@@ -815,17 +898,17 @@ create input 100 allot
 
 	: go-right ( -- )
 		times1 for
-			char white? right char white? and
-			if   begin char white? while right end left
-			else begin char while char space? until right end
+			char gap? right char gap? and
+			if   begin char gap? while right end left
+			else begin char while char gap? until char \n = until right end
 			end
 		end ;
 
 	: go-left ( -- )
 		times1 for
-			left char white?
-			if   begin caret 0> while char white? while left end right
-			else begin caret 0> while char space? until left end
+			left char gap?
+			if   begin caret 0> while char gap? while left end right
+			else begin caret 0> while char gap? until char \n = until left end
 			end
 		end ;
 
