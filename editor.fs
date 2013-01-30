@@ -162,7 +162,7 @@ stack redos
 	caret 1+ size min to caret ;
 
 : home ( -- )
-	caret for left char \n = until end caret 0> if right end ;
+	caret for left char right \n = until left end ;
 
 : away ( -- )
 	point \n cscan file - to caret ;
@@ -856,7 +856,7 @@ create input 100 allot
 		right imode ;
 
 	: enter ( -- )
-		\n insert right indent ;
+		undo! \n insert right indent ;
 
 	: tab ( -- )
 		\t insert right ;
@@ -877,7 +877,7 @@ create input 100 allot
 		repl! ;
 
 	: newline ( -- )
-		undo! away enter caret times1 1- for enter end to caret imode ;
+		away enter caret times1 1- for enter end to caret imode ;
 
 	: goto ( -- )
 		digits c@ if 0 to caret times for down end exit end
