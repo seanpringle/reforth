@@ -42,7 +42,7 @@
 \ | /            | Search for text by posix regex            |
 \ | n            | Search for next occurrence                |
 \ | \            | Set replacement text                      |
-\ | v            | Replace current search match              |
+\ | r            | Replace current search match              |
 \ | m            | Mark the current line                     |
 \ | y            | Copy from mark to current line            |
 \ | d            | Copy and delete from mark to current line |
@@ -58,7 +58,6 @@
 \ | w            | Save the file                             |
 \ | q            | Exit the editor                           |
 \ | wq           | w q                                       |
-\ | g ( n -- )   | Jump to line 'n'                          |
 \ | ?            | Wait for a key stroke                     |
 \ ------------------------------------------------------------
 \
@@ -147,6 +146,9 @@ stack redos
 : line ( -- n )
 	0 file at! caret for c@+ \n = if 1+ end end ;
 
+: lines ( -- n )
+	1 file at! size for c@+ \n = if 1+ end end ;
+
 : insert ( c -- )
 	expand point dup 1+ place point c! ;
 
@@ -160,7 +162,7 @@ stack redos
 	caret 1+ size min to caret ;
 
 : home ( -- )
-	caret for left char \n = until end caret 0> if right end ;
+	caret for left char right \n = until left end ;
 
 : away ( -- )
 	point \n cscan file - to caret ;
@@ -202,16 +204,16 @@ stack redos
 	clipboard blurt drop ;
 
 : yank ( -- )
-	caret here dup at! away range for char c!+ right end 0 c!+ clip to caret ;
+	caret here dup at! range for char c!+ right end 0 c!+ clip to caret ;
 
 : paste ( -- )
-	undo! away right clipboard slurp dup inserts free ;
+	away right clipboard slurp dup inserts free ;
 
 : delete ( -- )
-	undo! here dup at! away range for remove c!+ end 0 c!+ clip ;
+	here dup at! range for remove c!+ end 0 c!+ clip ;
 
 : rename ( name -- )
-	name place ;
+	name place name "\e]0;%s\a" print ;
 
 : close ( -- )
 	0 to caret unmark 0 to size 0 file c! ;
@@ -221,6 +223,9 @@ stack redos
 
 : open ( name -- )
 	close rename read ;
+
+: reopen ( -- )
+	close read ;
 
 : write ( -- )
 	file name blurt drop ;
@@ -255,7 +260,7 @@ create repl 100 allot
 : replace ( -- )
 	point srch stringlit match swap point = and
 	if
-		undo! point dup srch stringlit split
+		point dup srch stringlit split
 		drop swap place repl stringlit inserts
 	end ;
 
@@ -337,7 +342,7 @@ create repl 100 allot
 		8Ch C8h C8h fg-256 'fg-number   re
 		F0h DCh AFh fg-256 'fg-keyword  re
 		D8h D8h D8h fg-256 'fg-coreword re
-		D4h C4h A9h fg-256 'fg-variable re
+		C0h BEh D0h fg-256 'fg-variable re
 		F0h F0h 8Ch fg-256 'fg-define   re
 		FFh FFh FFh fg-256 'fg-status   re
 		30h 30h 30h bg-256 'bg-normal   re
@@ -424,6 +429,26 @@ create input 100 allot
 	end
 	edit:stop drop input ;
 
+: accept ( buf lim -- f )
+	"\e7" type
+	edit:start
+	begin
+		"\e8" type
+		edit:show
+		edit:step my!
+		my 27 =
+		"" edit:escseq? and
+		if
+			0 edit:input !
+			false leave
+		end
+		my 10 =
+		if
+			true leave
+		end
+	end
+	edit:stop drop ;
+
 : listen ( s -- f )
 	status type 0 input ! input 100 accept ;
 
@@ -446,6 +471,7 @@ create input 100 allot
 : complete ( -- a ) "notags!" ;
 : syntax   ( -- ) ;
 : clean    ( -- ) ;
+: gap?     ( c -- f ) white? ;
 
 : default ( -- )
 
@@ -468,6 +494,24 @@ create input 100 allot
 			caret over < if my - end right
 		end
 		to caret ;
+
+	: rtabs ( -- )
+		caret
+		0 to caret
+		begin
+			char while
+			char \t =
+			if
+				remove drop
+				tabsize for \s insert end
+				caret over < if tabsize 1- + end
+			end
+			right
+		end
+		to caret ;
+
+	: cln ( -- )
+		rtrim ;
 
 	: com ( -- a )
 
@@ -511,7 +555,7 @@ create input 100 allot
 		drop here ;
 
 	'ind is indent
-	'rtrim is clean
+	'cln is clean
 	'com is complete
 	'syn is syntax ;
 
@@ -602,11 +646,11 @@ create input 100 allot
 		point "^(function|class)\s+[^[:blank:]]+" match?
 		if fg-keyword word fg-define word exit end
 
-		point "^(if|else|elsif|for|foreach|while|function|class|return|var)[^a-zA-Z0-9_]" match?
+		point "^(if|else|elsif|for|foreach|while|function|class|return|var|new)[^a-zA-Z0-9_]" match?
 		if fg-keyword word exit end
 
 		point "^[-]{0,1}(0x|[0-9]){1}[0-9a-fA-F]*" match?
-		if fg-number word exit end
+		if fg-number shunt word exit end
 
 		fg-normal
 
@@ -615,12 +659,71 @@ create input 100 allot
 
 		shunt ;
 
+	: gap ( c -- f )
+		my! my white? my `, = or my `. = or my `( = or my `) = or ;
+
 	default
+	'gap is gap?
+	'syn is syntax ;
+
+: c99 ( -- )
+
+	: syn ( -- )
+
+		: shunt ( -- )
+			char put right ;
+
+		: name? ( c -- f )
+			my! my alpha? my digit? my `_ = or or ;
+
+		: whites ( -- )
+			begin char while char space? while shunt end ;
+
+		: comment ( -- )
+			begin char while char \n = until shunt end ;
+
+		: word ( -- )
+			whites begin char name? while shunt end ;
+
+		: string ( delim -- )
+			char shunt begin char my! my while shunt my over = until my `\ = if shunt end end drop ;
+
+		whites char 0= if exit end
+		point at! c@+ my!
+
+		my `/ = at c@ `/ = and
+		if fg-comment comment exit end
+
+		my `" = my `' = or
+		if fg-string string exit end
+
+		my `# =
+		if fg-define shunt word exit end
+
+		point "^(if|else|elsif|for|while|return|int|char|void|typedef|struct|unsigned)[^a-zA-Z0-9_]" match?
+		if fg-keyword word exit end
+
+		point "^[-]{0,1}(0x|[0-9]){1}[0-9a-fA-F]*" match?
+		if fg-number shunt word exit end
+
+		fg-normal
+
+		my name?
+		if word exit end
+
+		shunt ;
+
+	: gap ( c -- f )
+		my! my white? my `, = or my `. = or my `( = or my `) = or ;
+
+	default
+	'gap is gap?
 	'syn is syntax ;
 
 : detect ( -- )
 	name "\.fs$"  match? if reforth exit end
 	name "\.php$" match? if php     exit end
+	name "\.c$"   match? if c99     exit end
 	default ;
 
 : display ( -- )
@@ -635,6 +738,8 @@ create input 100 allot
 		0 value cursor
 		0 value cur-row
 		0 value cur-col
+		0 value discard
+		0 value discarded
 	end
 
 	: counter ( -- )
@@ -650,14 +755,18 @@ create input 100 allot
 		sline row + dup cline = swap mline = or if bg-active else bg-normal end ;
 
 	: row+ ( -- )
-		row 1+ to row erase 0 to col \n emit bg ;
+		row 1+ to row erase 0 to col 0 to discarded \n emit bg ;
 
 	: tab+ ( -- )
 		tabsize col tabsize mod - spaces ;
 
+	: discard? ( -- f )
+		discarded 1+ discard < dup if discarded 1+ to discarded end ;
+
 	: cput ( c -- ) my! counter
 		row rows = if      exit end
 		my \n    = if row+ exit end
+		discard?   if      exit end
 		col cols = if      exit end
 		my \t    = if tab+ exit end
 		my emit col+ ;
@@ -677,59 +786,77 @@ create input 100 allot
 	: jump ( -- rows )
 		rows 2/ 2/ ;
 
-	begin
-		caret  start < if jump     restart leave end
-		finish caret < if jump 3 * restart leave end
-		leave
-	end
+	: start! ( -- )
+		caret  start < if jump     restart exit end
+		finish caret < if jump 3 * restart exit end ;
 
-	sline file start + at! caret start -
-	for c@+ \n = if 1+ end end to cline
+	: cline! ( -- )
+		sline file start + at! caret start - for c@+ \n = if 1+ end end to cline ;
 
-	marker start >
-	marker start - rows cols * < and
-	if
-		sline file start + at! marker start -
-		for c@+ \n = if 1+ end end to mline
-	else
-		-1 to mline
-	end
+	: mline! ( -- )
+		marker start >
+		marker start - rows cols * < and
+		if
+			sline file start + at! marker start -
+			for c@+ \n = if 1+ end end to mline
+		else
+			-1 to mline
+		end ;
 
-	start to caret
-	col row at-xy
-	cursor-off wrap-off
-	fg-normal bg
+	: discard! ( -- )
+		caret tabsize + home caret - cols - to discard cursor to caret ;
 
-	begin
-		char while
-		row rows < while
-		syntax
-	end
-	begin
-		row rows < while
-		row+
-	end
-	cursor to caret
+	: setup ( -- )
+		start to caret col row at-xy cursor-off wrap-off fg-normal bg ;
 
-	fg-status bg-status .s
-	mode if "-- INSERT --" else "-- COMMAND --" end type
-	cur-col cline " %d,%d" print
-	srch c@ if srch " s[%s]" print end
-	repl c@ if repl " r[%s]" print end
+	: text ( -- )
+		begin char while row rows < while syntax end \n put ;
 
-	erase cur-col cur-row at-xy cursor-on ;
+	: gap ( -- )
+		begin row rows < while row+ end cursor to caret ;
 
+	: statusbar ( -- )
+		fg-status bg-status .s
+		mode if "-- INSERT --" else "-- COMMAND --" end type
+		cur-col cline " %d,%d" print
+		srch c@ if srch " n[%s]" print end
+		srch c@ if repl " r[%s]" print end
+		erase ;
+
+	: cleanup ( -- )
+		cursor to caret cur-col cur-row at-xy cursor-on ;
+
+	start! cline! mline! discard! setup text gap statusbar cleanup ;
 
 : main ( -- )
 
+	static vars
+		create digits 10 allot
+	end
+
+	: digit! ( c -- )
+		digits dup count + at! c!+ 0 c!+ ;
+
+	: times ( -- n )
+		digits number drop ;
+
+	: times1 ( -- n )
+		times 1 max ;
+
+	: reset ( -- )
+		0 digits ! ;
+
 	: imode ( -- )
-		undo! 1 to mode unmark ;
+		reset undo! 1 to mode unmark ;
 
 	: cmode ( -- )
-		0 to mode clean unmark ;
+		reset 0 to mode clean unmark ;
+
+	: imode1 ( -- )
+		right imode ;
 
 	: enter ( -- )
-		\n insert right indent ;
+		undo! \n insert right indent ;
 
 	: tab ( -- )
 		\t insert right ;
@@ -750,13 +877,67 @@ create input 100 allot
 		repl! ;
 
 	: newline ( -- )
-		away enter imode ;
+		away enter caret times1 1- for enter end to caret imode ;
 
 	: goto ( -- )
-		marker 1+ 0> if marker to caret end ;
+		digits c@ if 0 to caret times for down end exit end
+		marker 1+ 0> if marker to caret exit end
+		0 to caret ;
+
+	: gend ( -- )
+		size to caret home ;
 
 	: tagpick ( -- )
 		undo! complete menu dup inserts count for right end ;
+
+	: go-up ( -- )
+		times1 for up end ;
+
+	: go-down ( -- )
+		times1 for down end ;
+
+	: go-right ( -- )
+		times1 for
+			char gap? right char gap? and
+			if   begin char gap? while right end left
+			else begin char while char gap? until char \n = until right end
+			end
+		end ;
+
+	: go-left ( -- )
+		times1 for
+			left char gap?
+			if   begin caret 0> while char gap? while left end right
+			else begin caret 0> while char gap? until char \n = until left end
+			end
+		end ;
+
+	: pastes ( -- )
+		undo! times1 for paste end ;
+
+	: deletes ( -- )
+		undo! times1 for delete end ;
+
+	: searches ( -- )
+		times1 for search end ;
+
+	: replaces ( -- )
+		undo!
+		digits c@
+		if
+			times1 for
+				i if search end replace
+			end
+			exit
+		end
+		marker 1+ 0>
+		if
+			range caret tuck + my! 0
+			begin search caret my < while 1+ end
+			swap to caret for search replace end
+			exit
+		end
+		replace ;
 
 	: itilde ( -- )
 		"[1~" edit:escseq? if home   exit end
@@ -785,33 +966,52 @@ create input 100 allot
 		256 array iekey
 
 		'mark     `m ckey !
+		'mark     `M ckey !
 		'yank     `y ckey !
-		'paste    `p ckey !
-		'delete   `d ckey !
-		'left     `h ckey !
-		'right    `l ckey !
-		'up       `k ckey !
-		'down     `j ckey !
+		'yank     `Y ckey !
+		'pastes   `p ckey !
+		'pastes   `P ckey !
+		'deletes  `d ckey !
+		'deletes  `D ckey !
 		'undo     `u ckey !
-		'redo     `r ckey !
-		'search!  `/ ckey !
-		'replace! `\ ckey !
-		'search   `n ckey !
-		'replace  `r ckey !
+		'undo     `U ckey !
+		'searches `n ckey !
+		'searches `N ckey !
+		'replaces `r ckey !
+		'replaces `R ckey !
 		'imode    `i ckey !
+		'imode    `I ckey !
+		'imode1   `a ckey !
+		'imode1   `A ckey !
 		'newline  `o ckey !
+		'newline  `O ckey !
 		'goto     `g ckey !
+		'goto     `G ckey !
+		'gend     `e ckey !
+		'gend     `E ckey !
+
 		'command  `: ckey !
 		'tagpick  \t ckey !
+		'search!  `/ ckey !
+		'replace! `\ ckey !
 
-		'up      `A cekey !
-		'down    `B cekey !
-		'right   `C cekey !
-		'left    `D cekey !
-		'home    `H cekey !
-		'away    `F cekey !
-		'idiots  `O cekey !
-		'ctilde  `~ cekey !
+		'go-up    `k ckey !
+		'go-up    `K ckey !
+		'go-down  `j ckey !
+		'go-down  `J ckey !
+		'go-right `l ckey !
+		'go-right `L ckey !
+		'go-left  `h ckey !
+		'go-left  `H ckey !
+
+		'go-up    `A cekey !
+		'go-down  `B cekey !
+		'go-right `C cekey !
+		'go-left  `D cekey !
+		'home     `H cekey !
+		'away     `F cekey !
+		'idiots   `O cekey !
+		'ctilde   `~ cekey !
 
 		'enter    \n ikey !
 		'tab      \t ikey !
@@ -830,7 +1030,7 @@ create input 100 allot
 	end
 
 	begin
-		display
+		reset display
 		key my!
 
 		mode
@@ -858,6 +1058,11 @@ create input 100 allot
 			next
 		end
 
+		begin
+			my digit? while
+			my digit! key my!
+		end
+
 		my \e =
 		if
 			edit:escape my!
@@ -876,14 +1081,11 @@ create input 100 allot
 
 ;
 
-: q cr "\ec" type bye ;
+: q! cr "\ec" type bye ;
+: q q! ;
 : w write ;
 : wq w q ;
 : ? key drop ;
-
-: g ( line -- )
-	0 to caret for down end ;
-
 
 colors
 cell allocate to file

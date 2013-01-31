@@ -202,7 +202,7 @@ normal
 			 read start? if begin read done? until end end ;
 
 		: more? ( -- f )
-			 0 50 for key? or dup until 1000 usec end ;
+			 0 25 for key? or dup until 1000 usec end ;
 
 		"\e" escseq place more? if more end last ;
 

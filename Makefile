@@ -29,6 +29,15 @@ bench:
 	sh -c "time ./reforth_gcc test.fs 2>stderr_gcc"
 	sh -c "time ./reforth_clang test.fs 2>stderr_clang"
 
+parser:
+	$(CC) $(CFLAGS) -o parse parse.c
+	valgrind ./parse test.fs >test.c
+	valgrind ./parse ptest.fs >ptest.c
+	$(CC) $(CFLAGS) -Wno-unused -o ptest ptest.c
+	$(CC) $(CFLAGS) -Wno-unused -o test test.c
+	objdump -d test >test.dump
+	objdump -d ptest >ptest.dump
+
 test:
 	valgrind ./reforth
 
