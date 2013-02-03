@@ -662,8 +662,12 @@ create input 100 allot
 	: gap ( c -- f )
 		my! my white? my `, = or my `. = or my `( = or my `) = or ;
 
+	: cln ( -- )
+		default:rtrim default:rtabs ;
+
 	default
 	'gap is gap?
+	'cln is clean
 	'syn is syntax ;
 
 : c99 ( -- )

@@ -1,4 +1,4 @@
-CFLAGS?=-Wall -O3 -g
+CFLAGS?=-Wall -O2 -g
 
 normal: compress generic shell editor
 
@@ -26,17 +26,22 @@ compare:
 	objdump -d reforth_clang >reforth_clang.dump
 
 bench:
-	sh -c "time ./reforth_gcc test.fs 2>stderr_gcc"
-	sh -c "time ./reforth_clang test.fs 2>stderr_clang"
+	./parse test.fs >test.c
+	$(CC) -O1 -o test1 test.c
+	$(CC) -O2 -o test2 test.c
+	$(CC) -O3 -o test3 test.c
+	sh -c "time ./test1"
+	sh -c "time ./test2"
+	sh -c "time ./test3"
 
 parser:
 	$(CC) $(CFLAGS) -o parse parse.c
-	valgrind ./parse test.fs >test.c
-	valgrind ./parse ptest.fs >ptest.c
-	$(CC) $(CFLAGS) -Wno-unused -o ptest ptest.c
-	$(CC) $(CFLAGS) -Wno-unused -o test test.c
-	objdump -d test >test.dump
-	objdump -d ptest >ptest.dump
+	./parse ed.fs >ed.c
+	$(CC) $(CFLAGS) -Wno-unused -o ed ed.c
+	objdump -d ed >ed.dump
+	#valgrind ./parse ptest.fs >ptest.c
+	#$(CC) $(CFLAGS) -Wno-unused -o ptest ptest.c
+	#objdump -d ptest >ptest.dump
 
 test:
 	valgrind ./reforth
