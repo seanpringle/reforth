@@ -9,18 +9,16 @@
 		over - 2/ -1 cells and + ;
 
 	: exch ( a1 a2 -- )
-		dup @ push over @ swap ! pop swap ! ;
+		at! at @ my! dup @ !+ at! my !+ ;
 
 	: part ( l r -- l r r2 l2 )
-		2dup mid @ push
-		2dup
+		2dup mid @ my! 2dup
 		begin
-			swap begin dup @ top  cmp execute while cell+ end
-			swap begin top over @ cmp execute while cell- end
-			2dup <= if 2dup exch push cell+ pop cell- end
+			swap at! begin @+ my cmp execute while end at cell-
+			swap at! begin my @- cmp execute while end at cell+
+			2dup <= if 2dup exch at! cell+ at cell- end
 			2dup > until
-		end
-		pop drop ;
+		end ;
 
 	: qsort ( l r -- )
 		part swap rot

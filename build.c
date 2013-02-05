@@ -13,11 +13,25 @@
 #include <termios.h>
 #include <sys/ioctl.h>
 
+#ifdef __LP64__
 typedef int64_t cell;
+#else
+typedef int32_t cell;
+#endif
+
 typedef cell (*word)(cell);
 
 int argc; char **argv;
-cell stack[64], *sp, astack[64], *asp;
+static cell stack[128], astack[128];
+
+// GCC global register variables FTW!
+#if defined(__x86_64__) && defined(__GNUC__) && !defined(__clang__)
+register cell *sp asm("r15");
+static cell *asp;
+#else
+static cell *sp;
+static cell *asp;
+#endif
 
 #define push(n) (*sp++ = (cell)(n))
 #define pop (*--sp)
@@ -31,7 +45,6 @@ f_dot(cell tos)
 	return pop;
 }
 
-static cell f_count(cell tos) { return strlen((char*)tos); }
 static cell f_place(cell tos) { char *dst = (char*)tos, *src = (char*)pop; memmove(dst, src, strlen(src)+1); return pop; }
 static cell f_cmove(cell tos) { char *dst = (char*)pop, *src = (char*)pop; memmove(dst, src, tos); return pop; }
 static cell f_move(cell tos)  { char *dst = (char*)pop, *src = (char*)pop; memmove(dst, src, tos * sizeof(cell)); return pop; }
@@ -290,15 +303,6 @@ f_blurt(cell tos)
 	if (!f || fwrite(data, 1, dlen, f) != dlen) return 0;
 	fclose(f);
 	return 1;
-}
-
-static cell
-f_execute(cell tos)
-{
-	word w = (word)tos;
-	tos = pop;
-	if (w) tos = w(tos);
-	return tos;
 }
 
 // Convert a string to a number

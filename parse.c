@@ -367,7 +367,7 @@ main (int argc, char *argv[])
 				open_scope(parsed);
 				pcompile("static cell f_word%d(cell); //%s\n", word, parsed);
 				lcompile("static cell f_word%d(cell tos) { //%s\n", word, parsed);
-				lcompile("\tcell at, my, tmp;\n");
+				lcompile("\tregister cell at, my; cell tmp;\n");
 				*stk++ = word;
 				continue;
 			}
@@ -414,7 +414,7 @@ main (int argc, char *argv[])
 				assert(parse());
 				open_scope(parsed);
 				close_scope();
-				lcompile("#define f_word%d(t) push(t); (t) = f_val%d; } //local\n", word, word);
+				lcompile("#define f_word%d(t) push(tos) || 1 ? f_val%d: f_val%d; //local %s\n", word, word, word, parsed);
 				lcompile("\tcell f_val%d = tos; tos = pop; //%s\n", word, parsed);
 				continue;
 			}
@@ -561,9 +561,21 @@ main (int argc, char *argv[])
 				continue;
 			}
 
+			if (!strcmp("@-", parsed))
+			{
+				lcompile("\tpush(tos); tos = *((cell*)at); at -= sizeof(cell); //@-\n");
+				continue;
+			}
+
 			if (!strcmp("!+", parsed))
 			{
 				lcompile("\t*((cell*)at) = tos; tos = pop; at += sizeof(cell); //!+\n");
+				continue;
+			}
+
+			if (!strcmp("!-", parsed))
+			{
+				lcompile("\t*((cell*)at) = tos; tos = pop; at -= sizeof(cell); //!-\n");
 				continue;
 			}
 
@@ -573,9 +585,21 @@ main (int argc, char *argv[])
 				continue;
 			}
 
+			if (!strcmp("c@-", parsed))
+			{
+				lcompile("\tpush(tos); tos = *((unsigned char*)at); at -= sizeof(unsigned char); //c@-\n");
+				continue;
+			}
+
 			if (!strcmp("c!+", parsed))
 			{
 				lcompile("\t*((unsigned char*)at) = tos; tos = pop; at += sizeof(unsigned char); //c!+\n");
+				continue;
+			}
+
+			if (!strcmp("c!-", parsed))
+			{
+				lcompile("\t*((unsigned char*)at) = tos; tos = pop; at -= sizeof(unsigned char); //c!-\n");
 				continue;
 			}
 
@@ -914,8 +938,20 @@ main (int argc, char *argv[])
 				continue;
 			}
 
+			if (!strcmp("count", parsed))
+			{
+				lcompile("\ttos = strlen((char*)tos);\n");
+				continue;
+			}
+
+			if (!strcmp("execute", parsed))
+			{
+				lcompile("\ttmp = tos; tos = pop; if (tmp) tos = ((word)tmp)(tos);\n");
+				continue;
+			}
+
 			if (
-				match("^(bye|execute|key|allocate|resize|free|count|place|cmove|move)$", parsed) ||
+				match("^(bye|key|allocate|resize|free|place|cmove|move)$", parsed) ||
 				match("^(number|slurp|blurt|compare|match|split|format|getenv)$", parsed)
 			)
 			{

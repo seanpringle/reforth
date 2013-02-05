@@ -1,4 +1,4 @@
-CFLAGS?=-Wall -O2 -g
+CFLAGS?=-Wall -Wno-unused -O2 -g
 
 normal: compress generic shell editor
 
@@ -27,12 +27,10 @@ compare:
 
 bench:
 	./parse test.fs >test.c
-	$(CC) -O1 -o test1 test.c
-	$(CC) -O2 -o test2 test.c
-	$(CC) -O3 -o test3 test.c
-	sh -c "time ./test1"
-	sh -c "time ./test2"
-	sh -c "time ./test3"
+	gcc   $(CFLAGS) -o test2gcc   test.c
+	clang $(CFLAGS) -o test2clang test.c
+	sh -c "time ./test2gcc"
+	sh -c "time ./test2clang"
 
 parser:
 	$(CC) $(CFLAGS) -o parse parse.c
