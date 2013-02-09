@@ -368,6 +368,18 @@ main (int argc, char *argv[])
 				pcompile("static cell f_word%d(cell); //%s\n", word, parsed);
 				lcompile("static cell f_word%d(cell tos) { //%s\n", word, parsed);
 				lcompile("\tregister cell at, my; cell tmp;\n");
+				*stk++ = 1;
+				*stk++ = word;
+				continue;
+			}
+
+			if (!strcmp(":noname", parsed))
+			{
+				open_scope("_noname");
+				pcompile("static cell f_word%d(cell); //(noname)\n", word);
+				lcompile("static cell f_word%d(cell tos) { //(noname)\n", word);
+				lcompile("\tregister cell at, my; cell tmp;\n");
+				*stk++ = 2;
 				*stk++ = word;
 				continue;
 			}
@@ -389,12 +401,20 @@ main (int argc, char *argv[])
 				continue;
 			}
 
+			if (!strcmp("fields", parsed))
+			{
+				lcompile("\tpush(tos); tos = f_vars%d; //fields\n", stk[-1]);
+				continue;
+			}
+
 			if (!strcmp(";", parsed))
 			{
+				n = *--stk;
 				lcompile("\treturn tos;\n}\n");
-				pcompile("#define f_vars%d %d\n", stk[-1], vars[stk[-1]]);
+				pcompile("#define f_vars%d %d\n", n, vars[n]);
 				close_scope();
-				stk--;
+				if (*--stk == 2)
+					lcompile("push(tos); tos = (cell)(&f_word%d);\n", n);
 				continue;
 			}
 
