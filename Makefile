@@ -1,6 +1,6 @@
 CFLAGS?=-Wall -Wno-unused -O2 -g
 
-all: parser editor
+all: clean parser editor
 
 parser:
 	$(CC) $(CFLAGS) -o reforth reforth.c
@@ -10,4 +10,4 @@ editor:
 	$(CC) $(CFLAGS) -o editor editor.c
 
 clean:
-	rm reforth editor
+	rm -f reforth editor

@@ -124,7 +124,6 @@ parse()
 	while (*s && *s > 32 && len < 1023) parsed[len++] = *s++;
 	parsed[len] = 0;
 	src = s;
-	//fprintf(stderr, "parse: %s\n", parsed);
 	return len ? parsed: NULL;
 }
 
@@ -188,10 +187,18 @@ char *all_local;
 char *all_global;
 
 char namespace[1024], *words[65535];
-int word, cword, vars, rec;
+int word, cword, vars, rec, links[65535];
 
 char *sources[1024];
 int source;
+
+char*
+wname(char *name)
+{
+	int j;
+	for (j = strlen(name); j > 0 && name[j] != ':'; j--);
+	return name + j + 1;
+}
 
 void
 open_scope(char *name)
@@ -226,11 +233,7 @@ close_scope()
 	local  = scopes[--scope];
 	proto  = scopes[--scope];
 
-	int i;
-	for (i = strlen(namespace); i >= 0; i--)
-		if (namespace[i] == ':')
-			break;
-	namespace[i] = 0;
+	wname(namespace)[-1] = 0;
 }
 
 int
@@ -247,13 +250,11 @@ find_name(char *name)
 	{
 		char *eol = alias + strlen(alias);
 		sprintf(eol, ":%s", name);
-//		fprintf(stderr, "looking for: %s\n", alias);
 		int i;
 		for (i = word; i > 0; i--)
 		{
-//			fprintf(stderr, "    trying: %s\n", words[i]);
 			if (!strcmp(words[i], alias))
-				return i;
+				return links[i] ? links[i]: i;
 		}
 		*eol = 0;
 		for (i = strlen(alias); i >= 0; i--)
@@ -263,6 +264,25 @@ find_name(char *name)
 	}
 
 	return 0;
+}
+
+void
+alias_scope(int id, int new)
+{
+	int i, j, l;
+
+	l = new;
+	for (i = 0; i < l; i++)
+	{
+		if (words[i] && !strncmp(words[id], words[i], strlen(words[id])) && strcmp(words[id], words[i]))
+		{
+			char copy[1024];
+			for (j = strlen(words[i])-1; j > 0 && words[i][j] && words[i][j] != ':'; j--);
+			sprintf(copy, "%s:%s", words[new], words[i] + j + 1);
+			words[++word] = strdup(copy);
+			links[word] = i;
+		}
+	}
 }
 
 void
@@ -307,7 +327,7 @@ main (int argc, char *argv[])
 	lcompile("cell _f_main(cell tos) { do {\n");
 	lcompile("\tcell at, my;\n");
 
-	int _stk[1024], *stk = _stk;
+	int _stk[1024], *stk = _stk, last = 0;
 
 	for (arg = 1; arg < argc; arg++)
 	{
@@ -424,6 +444,48 @@ main (int argc, char *argv[])
 				close_scope();
 				lcompile("\tf_bind%d = (word)tos; tos = pop; //%s\n", word, parsed);
 				lcompile("\tf_val%d = tos; tos = pop; //%s\n", word, parsed);
+				continue;
+			}
+
+			if (!strcmp("object", parsed))
+			{
+				int i, id = last, nid;
+				char name[1024];
+
+				assert(parse());
+				open_scope(parsed);
+				nid = word;
+				pcompile("static cell f_val%d;\n", nid);
+				pcompile("static cell f_word%d(cell tos) { push(tos); return f_word%d(f_val%d); }\n", nid, id, nid);
+				close_scope();
+
+				lcompile("\ttos = pop;\n"); // last
+				lcompile("\ttos = f_word%d(tos);\n", id);
+				lcompile("\tf_val%d = tos; tos = pop;\n", nid);
+
+				for (i = id; i < nid; i++)
+				{
+					if (words[i] && !strncmp(words[i], words[id], strlen(words[id])) && strcmp(words[i], words[id]))
+					{
+						char *method = wname(words[i]);
+						snprintf(name, 1024, "%s.%s", parsed, method);
+
+						open_scope(name);
+						pcompile("static word f_bind%d; // method %s\n", word, method);
+						pcompile("static cell f_word%d(cell tos) { push(tos); return f_bind%d(f_val%d); }\n", word, word, nid);
+						close_scope();
+
+						lcompile("\tf_bind%d = f_word%d; // method %s\n", word, i, method);
+					}
+				}
+				continue;
+			}
+
+			if (!strcmp("from", parsed))
+			{
+				assert(parse());
+				assert((n = find_name(parsed)));
+				alias_scope(n, word);
 				continue;
 			}
 
@@ -992,6 +1054,7 @@ main (int argc, char *argv[])
 			if (*parsed == '\'' && (n = find_name(parsed+1)))
 			{
 				lcompile("\tpush(tos); tos = (cell)(&f_word%d);\n", n);
+				last = n;
 				continue;
 			}
 

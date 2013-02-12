@@ -142,14 +142,12 @@
 	: depth ( a -- n )
 		size @ ;
 
-	fields allocate at!
+	: create ( -- a )
+		fields allocate at! 0 at size !
+		1 cells allocate at data ! at ;
 
-	0 1 cells allocate
-
-	at data !
-	at size !
-
-	at ;
+	create
+;
 
 : print ( s -- )
 	format type ;
@@ -343,14 +341,14 @@ format copy value clipboard
 	end
 	edit:stop ;
 
-stack value undos
-stack value redos
+'stack object undos
+'stack object redos
 
 : undo! ( -- )
-	undos stack:top file 0 compare if file copy undos stack:push end ;
+	undos.top file 0 compare if file copy undos.push end ;
 
 : redo! ( -- )
-	redos stack:top file 0 compare if file copy redos stack:push end ;
+	redos.top file 0 compare if file copy redos.push end ;
 
 : expand ( -- )
 	size 1+ to size file size 1+ resize to file ;
@@ -455,10 +453,10 @@ stack value redos
 	caret swap close inserts size min to caret ;
 
 : undo ( -- )
-	redo! undos stack:pop dup if revert else drop end ;
+	redo! undos.pop dup if revert else drop end ;
 
 : redo ( -- )
-	undo! redos stack:pop dup if revert else drop end ;
+	undo! redos.pop dup if revert else drop end ;
 
 : blat ( a -- )
 	type ;
@@ -807,7 +805,7 @@ stack value redos
 		point "^:\s+[^[:blank:]]+" match?
 		if fg-keyword word fg-define word exit end
 
-		point "^(if|else|end|for|i|begin|while|until|exit|leave|next|value|bind|array|field|record|;)\s" match?
+		point "^(if|else|end|for|i|begin|while|until|exit|leave|next|value|bind|object|array|field|record|;)\s" match?
 		if fg-keyword word exit end
 
 		point "^[-]?[0-9a-fA-F]+[hb]?\s" match?
