@@ -122,7 +122,7 @@
 		at! at size @ 1- 0 max cells at data @ + ;
 
 	: inc ( a -- )
-		at! 1 at size +! at data @ at size @ cells resize at data ! ;
+		at! at size @ 1+ at data @ over cells resize at data ! at size ! ;
 
 	: dec ( a -- )
 		size dup @ 1- 0 max swap ! ;
@@ -186,10 +186,10 @@
 	dup \s = swap \t = or ;
 
 : cscan ( a c -- a' )
-	my! begin dup c@ dup my = swap 0= or until 1+ end ;
+	my! begin dup b@ dup my = swap 0= or until 1+ end ;
 
 : cskip ( a c -- a' )
-	my! begin dup c@ my = while 1+ end ;
+	my! begin dup b@ my = while 1+ end ;
 
 : basename ( a -- a' )
 	dup "/[^/]+$" match if nip 1+ else drop end ;
@@ -226,10 +226,10 @@ format copy value clipboard
 	: escape ( -- c )
 
 		: last ( -- c )
-			 escseq dup dup count + 1- max c@ ;
+			 escseq dup dup count + 1- max b@ ;
 
 		: read ( -- )
-			 key escseq dup count + at! c!+ 0 c!+ ;
+			 key escseq dup count + at! b!+ 0 b!+ ;
 
 		: done? ( -- f )
 			 last dup `@ >= swap `~ <= and ;
@@ -241,7 +241,7 @@ format copy value clipboard
 			 read start? if begin read done? until end end ;
 
 		: more? ( -- f )
-			 0 25 for key? or dup until 1000 usec end ;
+			 0 25 for key? or dup until 1000 microsleep end ;
 
 		"\e" escseq place more? if more end last ;
 
@@ -261,10 +261,10 @@ format copy value clipboard
 		input count to caret ;
 
 	: ins ( c -- )
-		point dup dup 1+ place c! ;
+		point dup dup 1+ place b! ;
 
 	: del ( --  c )
-		point at! at c@ dup if at 1+ at place end ;
+		point at! at b@ dup if at 1+ at place end ;
 
 	: tilde ( -- )
 		"[1~" escseq? if home exit end
@@ -341,8 +341,8 @@ format copy value clipboard
 	end
 	edit:stop ;
 
-'stack object undos
-'stack object redos
+stack 'stack wrap undos
+stack 'stack wrap redos
 
 : undo! ( -- )
 	undos.top file 0 compare if file copy undos.push end ;
@@ -360,16 +360,16 @@ format copy value clipboard
 	file caret + ;
 
 : char ( -- c )
-	point c@ ;
+	point b@ ;
 
 : line ( -- n )
-	0 file at! caret for c@+ \n = if 1+ end end ;
+	0 file at! caret for b@+ \n = if 1+ end end ;
 
 : lines ( -- n )
-	1 file at! size for c@+ \n = if 1+ end end ;
+	1 file at! size for b@+ \n = if 1+ end end ;
 
 : insert ( c -- )
-	expand point dup 1+ place point c! ;
+	expand point dup 1+ place point b! ;
 
 : remove ( -- c )
 	char caret size < if point dup 1+ swap place shrink end ;
@@ -405,7 +405,7 @@ format copy value clipboard
 	rows 2/ for down end ;
 
 : inserts ( text -- )
-	at! caret begin c@+ dup while insert right end drop to caret ;
+	at! caret begin b@+ dup while insert right end drop to caret ;
 
 : mark ( -- )
 	caret home caret to marker to caret ;
@@ -423,19 +423,19 @@ format copy value clipboard
 	clipboard blurt drop ;
 
 : yank ( -- )
-	caret here at! at range for char c!+ right end 0 c!+ clip to caret ;
+	caret here at! at range for char b!+ right end 0 b!+ clip to caret ;
 
 : paste ( -- )
 	away right clipboard slurp dup inserts free ;
 
 : delete ( -- )
-	here at! at range for remove c!+ end 0 c!+ clip ;
+	here at! at range for remove b!+ end 0 b!+ clip ;
 
 : rename ( name -- )
 	name place name basename "\e]0;%s\a" print ;
 
 : close ( -- )
-	0 to caret unmark 0 to size 0 file c! ;
+	0 to caret unmark 0 to size 0 file b! ;
 
 : read ( -- )
 	name slurp at! at if at inserts end ;
@@ -563,10 +563,10 @@ format copy value clipboard
 		input dup count compare 0= ;
 
 	: hit+ ( a -- a' )
-		input c@ if begin dup c@ while dup hit? until eol sol end end ;
+		input b@ if begin dup b@ while dup hit? until eol sol end end ;
 
 	: input! ( a n -- )
-		my! input my cmove 0 input my + c! ;
+		my! input my move 0 input my + b! ;
 
 	: hit! ( -- )
 		options hit+ select for eol hit+ end at! at eol at - my! my if at my input! end ;
@@ -575,19 +575,19 @@ format copy value clipboard
 		options select for eol sol end dup eol over - input! ;
 
 	: hits ( -- n )
-		0 options begin hit+ at! at c@ while 1+ at eol sol end ;
+		0 options begin hit+ at! at b@ while 1+ at eol sol end ;
 
 	: items ( -- n )
-		0 options begin at! at c@ while 1+ at eol sol end ;
+		0 options begin at! at b@ while 1+ at eol sol end ;
 
 	: item. ( a i -- )
-		select = if bg-active end space at! at eol at - for c@+ emit end space bg-status ;
+		select = if bg-active end space at! at eol at - for b@+ emit end space bg-status ;
 
 	: draw ( -- n )
-		space space options begin hit+ dup c@ while dup i item. eol sol end drop ;
+		space space options begin hit+ dup b@ while dup i item. eol sol end drop ;
 
 	: select+ ( n -- )
-		select + input c@ if hits else items end 1- min 0 max to select ;
+		select + input b@ if hits else items end 1- min 0 max to select ;
 
 	input 100 edit:start
 	begin
@@ -598,7 +598,7 @@ format copy value clipboard
 
 		my \e =
 		if
-			edit:escseq dup count 1- + c@ my!
+			edit:escseq dup count 1- + b@ my!
 			my \e = if 0 edit:input ! leave end
 
 			edit:away
@@ -610,8 +610,8 @@ format copy value clipboard
 
 		my \n =
 		if
-			input c@ 0<> hits 0> and if hit! leave end
-			input c@ 0= if sel! leave end
+			input b@ 0<> hits 0> and if hit! leave end
+			input b@ 0= if sel! leave end
 			leave
 		end
 	end
@@ -626,15 +626,15 @@ format copy value clipboard
 : stringlit ( s -- a )
 
 	: put ( c -- )
-		tmp count tmp + at! c!+ 0 c!+ ;
+		tmp count tmp + at! b!+ 0 b!+ ;
 
 	0 tmp ! at!
 	begin
-		c@+ my!
+		b@+ my!
 		my while
 		my `\ = at "^[nreat]" match? and
 		if
-			c@+ my!
+			b@+ my!
 			my `n = if \n put next end
 			my `r = if \r put next end
 			my `e = if \e put next end
@@ -686,9 +686,9 @@ format copy value clipboard
 
 	: ind ( -- )
 		caret up home tmp at!
-		begin char white? while char c!+ right end
-		0 c!+ to caret tmp at!
-		begin c@+ dup while insert right end drop ;
+		begin char white? while char b!+ right end
+		0 b!+ to caret tmp at!
+		begin b@+ dup while insert right end drop ;
 
 	: rtrim ( -- )
 		caret
@@ -740,7 +740,7 @@ format copy value clipboard
 
 		file copy at! at
 		begin
-			at c@ while
+			at b@ while
 			at "\s+" split
 			at keep swap at! while
 		end
@@ -756,7 +756,7 @@ format copy value clipboard
 		for
 			i cells words stack:base + @
 			dup count push over place pop +
-			at! \n c!+ at
+			at! \n b!+ at
 		end
 		drop here ;
 
@@ -774,7 +774,7 @@ format copy value clipboard
 			char put right ;
 
 		: cword? ( c -- )
-			point at! c@+ = c@+ space? and ;
+			point at! b@+ = b@+ space? and ;
 
 		: whites ( -- )
 			begin char while char space? while shunt end ;
@@ -805,7 +805,7 @@ format copy value clipboard
 		point "^:\s+[^[:blank:]]+" match?
 		if fg-keyword word fg-define word exit end
 
-		point "^(if|else|end|for|i|begin|while|until|exit|leave|next|value|bind|object|array|field|record|;)\s" match?
+		point "^(if|else|end|for|i|begin|while|until|exit|leave|next|value|bind|wrap|array|field|record|to|is|;)\s" match?
 		if fg-keyword word exit end
 
 		point "^[-]?[0-9a-fA-F]+[hb]?\s" match?
@@ -839,9 +839,9 @@ format copy value clipboard
 			char shunt begin char my! my while shunt my over = until my `\ = if shunt end end drop ;
 
 		whites char 0= if exit end
-		point at! c@+ my!
+		point at! b@+ my!
 
-		my `/ = at c@ `/ = and
+		my `/ = at b@ `/ = and
 		if fg-comment comment exit end
 
 		my `" = my `' = or
@@ -903,12 +903,12 @@ format copy value clipboard
 			char shunt begin char my! my while shunt my over = until my `\ = if shunt end end drop ;
 
 		whites char 0= if exit end
-		point at! c@+ my!
+		point at! b@+ my!
 
-		my `/ = at c@ `/ = and
+		my `/ = at b@ `/ = and
 		if fg-comment comment exit end
 
-		my `/ = at c@ `* = and
+		my `/ = at b@ `* = and
 		if fg-comment comment2 exit end
 
 		my `" = my `' = or
@@ -1058,14 +1058,14 @@ format copy value clipboard
 		finish caret < if jump 3 * restart exit end ;
 
 	: cline! ( -- )
-		sline file start + at! caret start - for c@+ \n = if 1+ end end to cline ;
+		sline file start + at! caret start - for b@+ \n = if 1+ end end to cline ;
 
 	: mline! ( -- )
 		marker start >
 		marker start - rows cols * < and
 		if
 			sline file start + at! marker start -
-			for c@+ \n = if 1+ end end to mline
+			for b@+ \n = if 1+ end end to mline
 		else
 			-1 to mline
 		end ;
@@ -1086,8 +1086,8 @@ format copy value clipboard
 		fg-status bg-status .s
 		mode if "-- INSERT --" else "-- COMMAND --" end type
 		cur-col cline " %d,%d" print
-		srch c@ if srch " n[%s]" print end
-		srch c@ if repl " r[%s]" print end
+		srch b@ if srch " n[%s]" print end
+		srch b@ if repl " r[%s]" print end
 		name basename " %s" print erase ;
 
 	: cleanup ( -- )
@@ -1103,7 +1103,7 @@ format copy value clipboard
 	10 allocate value digits
 
 	: digit! ( c -- )
-		digits dup count + at! c!+ 0 c!+ ;
+		digits dup count + at! b!+ 0 b!+ ;
 
 	: times ( -- n )
 		digits number drop ;
@@ -1136,7 +1136,7 @@ format copy value clipboard
 		left del ;
 
 	: idiots ( -- )
-		edit:escseq dup count + 1- c@ `H = if home else away end ;
+		edit:escseq dup count + 1- b@ `H = if home else away end ;
 
 	: search! ( -- )
 		srch! search ;
@@ -1148,7 +1148,7 @@ format copy value clipboard
 		away enter caret times1 1- for enter end to caret imode ;
 
 	: goto ( -- )
-		digits c@ if 0 to caret times for down end exit end
+		digits b@ if 0 to caret times for down end exit end
 		marker 1+ 0> if marker to caret exit end 0 to caret ;
 
 	: gend ( -- )
@@ -1190,7 +1190,7 @@ format copy value clipboard
 
 	: replaces ( -- )
 		undo!
-		digits c@
+		digits b@
 		if
 			times1 for
 				i if search end replace
@@ -1238,7 +1238,7 @@ format copy value clipboard
 			input "^redo$" match? if redo exit end
 			input at!
 			begin
-				c@+ my! my while
+				b@+ my! my while
 				my `w = if write     next end
 				my `q = if 1 to quit next end
 			end

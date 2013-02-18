@@ -267,25 +267,6 @@ find_name(char *name)
 }
 
 void
-alias_scope(int id, int new)
-{
-	int i, j, l;
-
-	l = new;
-	for (i = 0; i < l; i++)
-	{
-		if (words[i] && !strncmp(words[id], words[i], strlen(words[id])) && strcmp(words[id], words[i]))
-		{
-			char copy[1024];
-			for (j = strlen(words[i])-1; j > 0 && words[i][j] && words[i][j] != ':'; j--);
-			sprintf(copy, "%s:%s", words[new], words[i] + j + 1);
-			words[++word] = strdup(copy);
-			links[word] = i;
-		}
-	}
-}
-
-void
 pcompile(char *fmt, ...)
 {
 	proto = realloc(proto, strlen(proto) + 1024);
@@ -323,25 +304,46 @@ main (int argc, char *argv[])
 	all_local  = calloc(1, 1024);
 	all_global = calloc(1, 1024);
 
+	int f_format  = 0;
+	int f_at_xy   = 0;
+	int f_max_xy  = 0;
+	int f_match   = 0;
+	int f_split   = 0;
+	int f_key     = 0;
+	int f_keyq    = 0;
+	int f_compare = 0;
+	int f_slurp   = 0;
+	int f_blurt   = 0;
+	int f_number  = 0;
+	int f_fork    = 0;
+
 	open_scope("_global_");
-	lcompile("cell _f_main(cell tos) { do {\n");
-	lcompile("\tcell at, my;\n");
+	lcompile("cell _f_main(cell tos) {\n\tcell at, my, i = 0; do {\n");
 
 	int _stk[1024], *stk = _stk, last = 0;
 
 	for (arg = 1; arg < argc; arg++)
 	{
-		char *slurped = slurp(argv[1]);
-		src = slurped;
+		char *slurped = NULL;
 
-		while (*src)
+		if (!strcmp("-e", argv[arg]) && arg+1 < argc)
+		{
+			slurped = strdup(argv[++arg]);
+		}
+		else
+		{
+			slurped = slurp(argv[arg]);
+		}
+
+		src = slurped;
+		while (src && *src)
 		{
 			while (isspace(*src)) src++;
 
 			if (*src == '"')
 			{
 				sparse();
-				pcompile("const char string%d[] = {", strings);
+				pcompile("static const char string%d[] = {", strings);
 				for (n = 0; n < strlen(sparsed); n++)
 					pcompile("%d,", sparsed[n]);
 				pcompile("0};\n");
@@ -384,9 +386,8 @@ main (int argc, char *argv[])
 			{
 				assert(parse());
 				open_scope(parsed);
-				pcompile("static cell f_word%d(cell); //%s\n", word, parsed);
-				lcompile("static cell f_word%d(cell tos) { do { //%s\n", word, parsed);
-				lcompile("\tregister cell at, my;\n");
+				pcompile("static cell f_word%d(cell); // %s\n", word, parsed);
+				lcompile("static cell f_word%d(cell tos) { // %s\n\tcell at, my, i = 0; do {\n", word, parsed);
 				*stk++ = 1;
 				*stk++ = word;
 				continue;
@@ -395,9 +396,8 @@ main (int argc, char *argv[])
 			if (!strcmp(":noname", parsed))
 			{
 				open_scope("_noname");
-				pcompile("static cell f_word%d(cell); //(noname)\n", word);
-				lcompile("static cell f_word%d(cell tos) { do { //(noname)\n", word);
-				lcompile("\tregister cell at, my;\n");
+				pcompile("static cell f_word%d(cell); // (noname)\n", word);
+				lcompile("static cell f_word%d(cell tos) { // (noname)\n\tcell at, my, i = 0; do {\n", word);
 				*stk++ = 2;
 				*stk++ = word;
 				continue;
@@ -406,7 +406,7 @@ main (int argc, char *argv[])
 			if (!strcmp(";", parsed))
 			{
 				n = *--stk;
-				lcompile("\t} while(0); return tos;\n}\n");
+				lcompile("\t} while(0); end: return tos;\n}\n");
 				close_scope();
 				if (*--stk == 2)
 					lcompile("push(tos); tos = (cell)(&f_word%d);\n", n);
@@ -417,10 +417,10 @@ main (int argc, char *argv[])
 			{
 				assert(parse());
 				open_scope(parsed);
-				pcompile("static cell f_val%d; //%s\n", word, parsed);
-				pcompile("static cell f_word%d(cell tos) { push(tos); return f_val%d; } //value\n", word, word);
+				pcompile("static cell f_val%d; // %s\n", word, parsed);
+				pcompile("static inline cell f_word%d(cell tos) { push(tos); return f_val%d; } // value\n", word, word);
 				close_scope();
-				lcompile("\tf_val%d = tos; tos = pop; //%s\n", word, parsed);
+				lcompile("\tf_val%d = tos; tos = pop; // %s\n", word, parsed);
 				continue;
 			}
 
@@ -429,8 +429,8 @@ main (int argc, char *argv[])
 				assert(parse());
 				open_scope(parsed);
 				close_scope();
-				lcompile("#define f_word%d(t) push(tos) || 1 ? f_val%d: f_val%d; //local %s\n", word, word, word, parsed);
-				lcompile("\tcell f_val%d = tos; tos = pop; //%s\n", word, parsed);
+				lcompile("#define f_word%d(t) push(tos) || 1 ? f_val%d: f_val%d; // local %s\n", word, word, word, parsed);
+				lcompile("\tcell f_val%d = tos; tos = pop; // %s\n", word, parsed);
 				continue;
 			}
 
@@ -438,16 +438,16 @@ main (int argc, char *argv[])
 			{
 				assert(parse());
 				open_scope(parsed);
-				pcompile("static cell f_val%d; //%s\n", word, parsed);
-				pcompile("static word f_bind%d; //%s\n", word, parsed);
-				pcompile("static cell f_word%d(cell tos) { push(tos); return f_bind%d(f_val%d); } //bind\n", word, word, word);
+				pcompile("static cell f_val%d; // %s\n", word, parsed);
+				pcompile("static word f_bind%d; // %s\n", word, parsed);
+				pcompile("static inline cell f_word%d(cell tos) { push(tos); return f_bind%d(f_val%d); } // bind\n", word, word, word);
 				close_scope();
-				lcompile("\tf_bind%d = (word)tos; tos = pop; //%s\n", word, parsed);
-				lcompile("\tf_val%d = tos; tos = pop; //%s\n", word, parsed);
+				lcompile("\tf_bind%d = (word)tos; tos = pop; // %s\n", word, parsed);
+				lcompile("\tf_val%d = tos; tos = pop; // %s\n", word, parsed);
 				continue;
 			}
 
-			if (!strcmp("object", parsed))
+			if (!strcmp("wrap", parsed))
 			{
 				int i, id = last, nid;
 				char name[1024];
@@ -456,12 +456,11 @@ main (int argc, char *argv[])
 				open_scope(parsed);
 				nid = word;
 				pcompile("static cell f_val%d;\n", nid);
-				pcompile("static cell f_word%d(cell tos) { push(tos); return f_word%d(f_val%d); }\n", nid, id, nid);
+				pcompile("static inline cell f_word%d(cell tos) { push(tos); return f_val%d; }\n", nid, nid);
 				close_scope();
 
 				lcompile("\ttos = pop;\n"); // last
-				lcompile("\ttos = f_word%d(tos);\n", id);
-				lcompile("\tf_val%d = tos; tos = pop;\n", nid);
+				lcompile("\tf_val%d = tos; tos = pop; // %s\n", word, parsed);
 
 				for (i = id; i < nid; i++)
 				{
@@ -472,7 +471,8 @@ main (int argc, char *argv[])
 
 						open_scope(name);
 						pcompile("static word f_bind%d; // method %s\n", word, method);
-						pcompile("static cell f_word%d(cell tos) { push(tos); return f_bind%d(f_val%d); }\n", word, word, nid);
+						pcompile("static inline cell f_word%d(cell tos) { push(tos); return f_bind%d(f_val%d); }\n",
+							word, word, nid);
 						close_scope();
 
 						lcompile("\tf_bind%d = f_word%d; // method %s\n", word, i, method);
@@ -483,9 +483,23 @@ main (int argc, char *argv[])
 
 			if (!strcmp("from", parsed))
 			{
+				int id, i, j, l;
+				char copy[1024];
+
 				assert(parse());
-				assert((n = find_name(parsed)));
-				alias_scope(n, word);
+				assert((id = find_name(parsed)));
+
+				l = word;
+				for (i = id; i < l; i++)
+				{
+					if (words[i] && !strncmp(words[id], words[i], strlen(words[id])) && strcmp(words[id], words[i]))
+					{
+						char *method = wname(words[i]);
+						snprintf(copy, 1024, "%s:%s", words[n], method);
+						words[++word] = strdup(copy);
+						links[word] = i;
+					}
+				}
 				continue;
 			}
 
@@ -493,7 +507,7 @@ main (int argc, char *argv[])
 			{
 				assert(parse());
 				assert((n = find_name(parsed)));
-				lcompile("\tf_val%d = tos; tos = pop; //to %s\n", n, parsed);
+				lcompile("\tf_val%d = tos; tos = pop; // to %s\n", n, parsed);
 				continue;
 			}
 
@@ -501,7 +515,7 @@ main (int argc, char *argv[])
 			{
 				assert(parse());
 				assert((n = find_name(parsed)));
-				lcompile("\tf_bind%d = (word)tos; tos = pop; //%s\n", n, parsed);
+				lcompile("\tf_bind%d = (word)tos; tos = pop; // %s\n", n, parsed);
 				continue;
 			}
 
@@ -509,16 +523,17 @@ main (int argc, char *argv[])
 			{
 				assert(parse());
 				open_scope(parsed);
-				pcompile("static cell f_size%d, f_cell%d; //array %s\n", word, word, parsed);
-				pcompile("static char *f_addr%d; //array %s\n", word, parsed);
-				pcompile("static cell f_word%d(cell tos) { //array %s\n", word, parsed);
-				pcompile("\tassert(tos >= 0 && tos < f_size%d);\n", word);
-				pcompile("\treturn (cell)(f_addr%d + (tos * f_cell%d));\n", word, word);
+				pcompile("static cell f_size%d, f_cell%d; // array %s\n", word, word, parsed);
+				pcompile("static char *f_addr%d; // array %s\n", word, parsed);
+				pcompile("static inline cell f_word%d(cell tos) { // array %s\n", word, parsed);
+				pcompile("\tif (tos >= 0 && tos < f_size%d)\n", word);
+				pcompile("\t\treturn (cell)(f_addr%d + (tos * f_cell%d));\n", word, word);
+				pcompile("\tfprintf(stderr, \"array out of bounds: %s[%%ld] %%ld\\n\", f_size%d, tos);\n\texit(1);\n", parsed, word);
 				pcompile("}\n");
 				close_scope();
 				lcompile("\tf_cell%d = tos; tos = pop;\n", word);
 				lcompile("\tf_size%d = tos; tos = pop;\n", word);
-				lcompile("\tfree(f_addr%d); f_addr%d = calloc(f_size%d, f_cell%d); //%s\n", word, word, word, word, parsed);
+				lcompile("\tfree(f_addr%d); f_addr%d = calloc(f_size%d, f_cell%d); // %s\n", word, word, word, word, parsed);
 				continue;
 			}
 
@@ -527,7 +542,7 @@ main (int argc, char *argv[])
 				assert(parse());
 				open_scope(parsed);
 				close_scope();
-				pcompile("static cell f_word%d(cell tos) { return tos + %d; } //%s\n", word, vars, parsed);
+				pcompile("static inline cell f_word%d(cell tos) { return tos + %d; } // %s\n", word, vars, parsed);
 				vars += sizeof(cell);
 				continue;
 			}
@@ -537,7 +552,7 @@ main (int argc, char *argv[])
 				assert(parse());
 				open_scope(parsed);
 				close_scope();
-				pcompile("//record %s\n", parsed);
+				pcompile("// record %s\n", parsed);
 				rec = word;
 				vars = 0;
 				continue;
@@ -545,25 +560,25 @@ main (int argc, char *argv[])
 
 			if (!strcmp("if", parsed))
 			{
-				lcompile("\t{ cell f = tos; tos = pop; if (f) { //if\n");
+				lcompile("\t{ cell f = tos; tos = pop; if (f) { // if\n");
 				continue;
 			}
 
 			if (!strcmp("else", parsed))
 			{
-				lcompile("\t} else { //else\n");
+				lcompile("\t} else { // else\n");
 				continue;
 			}
 
 			if (!strcmp("for", parsed))
 			{
-				lcompile("\t{ int i, l = tos; tos = pop; for (i = 0; i < l; i++) { //for\n");
+				lcompile("\t{ cell j = i, i = 0, l = tos; tos = pop; for (; i < l; i++) { // for\n");
 				continue;
 			}
 
 			if (!strcmp("begin", parsed))
 			{
-				lcompile("\t{ int i; for (i = 0; ; i++) { //begin\n");
+				lcompile("\t{ cell j = i, i = 0; for (; ; i++) { // begin\n");
 				continue;
 			}
 
@@ -571,303 +586,277 @@ main (int argc, char *argv[])
 			{
 				if (rec)
 				{
-					pcompile("static cell f_word%d(cell tos) { push(tos); return %d; } //record\n", rec, vars);
+					pcompile("static inline cell f_word%d(cell tos) { push(tos); return %d; } // record\n", rec, vars);
 					rec = 0;
 				}
 				else
 				{
-					lcompile("\t}} //end\n");
+					lcompile("\t}} // end\n");
 				}
 				continue;
 			}
 
 			if (!strcmp("i", parsed))
 			{
-				lcompile("\tpush(tos); tos = i; //i\n");
+				lcompile("\tpush(tos); tos = i; // i\n");
+				continue;
+			}
+
+			if (!strcmp("j", parsed))
+			{
+				lcompile("\tpush(tos); tos = j; // j\n");
 				continue;
 			}
 
 			if (!strcmp("while", parsed))
 			{
-				lcompile("\t{ cell f = tos; tos = pop; if (!f) break; } //while\n");
+				lcompile("\t{ cell f = tos; tos = pop; if (!f) break; } // while\n");
 				continue;
 			}
 
 			if (!strcmp("until", parsed))
 			{
-				lcompile("\t{ cell f = tos; tos = pop; if (f) break; } //until\n");
+				lcompile("\t{ cell f = tos; tos = pop; if (f) break; } // until\n");
 				continue;
 			}
 
 			if (!strcmp("leave", parsed))
 			{
-				lcompile("\tbreak; //leave\n");
+				lcompile("\tbreak; // leave\n");
 				continue;
 			}
 
 			if (!strcmp("next", parsed))
 			{
-				lcompile("\tcontinue; //next\n");
+				lcompile("\tcontinue; // next\n");
 				continue;
 			}
 
 			if (!strcmp("exit", parsed))
 			{
-				lcompile("\treturn tos; //exit\n");
+				lcompile("\tgoto end; // exit\n");
+				continue;
+			}
+
+			// high-level words
+			if ((n = find_name(parsed)))
+			{
+				lcompile("\ttos = f_word%d(tos); // %s\n", n, parsed);
 				continue;
 			}
 
 			if (!strcmp("at", parsed))
 			{
-				lcompile("\tpush(tos); tos = at; //at\n");
+				lcompile("\tpush(tos); tos = at; // at\n");
 				continue;
 			}
 
 			if (!strcmp("my", parsed))
 			{
-				lcompile("\tpush(tos); tos = my; //my\n");
+				lcompile("\tpush(tos); tos = my; // my\n");
 				continue;
 			}
 
 			if (!strcmp("at!", parsed))
 			{
-				lcompile("\tat = tos; tos = pop; //at!\n");
+				lcompile("\tat = tos; tos = pop; // at!\n");
 				continue;
 			}
 
 			if (!strcmp("my!", parsed))
 			{
-				lcompile("\tmy = tos; tos = pop; //my!\n");
+				lcompile("\tmy = tos; tos = pop; // my!\n");
 				continue;
 			}
 
 			if (!strcmp("@+", parsed))
 			{
-				lcompile("\tpush(tos); tos = *((cell*)at); at += sizeof(cell); //@+\n");
+				lcompile("\tpush(tos); tos = *((cell*)at); at += sizeof(cell); // @+\n");
 				continue;
 			}
 
 			if (!strcmp("@-", parsed))
 			{
-				lcompile("\tpush(tos); tos = *((cell*)at); at -= sizeof(cell); //@-\n");
+				lcompile("\tpush(tos); tos = *((cell*)at); at -= sizeof(cell); // @-\n");
 				continue;
 			}
 
 			if (!strcmp("!+", parsed))
 			{
-				lcompile("\t*((cell*)at) = tos; tos = pop; at += sizeof(cell); //!+\n");
+				lcompile("\t*((cell*)at) = tos; tos = pop; at += sizeof(cell); // !+\n");
 				continue;
 			}
 
 			if (!strcmp("!-", parsed))
 			{
-				lcompile("\t*((cell*)at) = tos; tos = pop; at -= sizeof(cell); //!-\n");
+				lcompile("\t*((cell*)at) = tos; tos = pop; at -= sizeof(cell); // !-\n");
 				continue;
 			}
 
-			if (!strcmp("c@+", parsed))
+			if (!strcmp("b@+", parsed))
 			{
-				lcompile("\tpush(tos); tos = *((unsigned char*)at); at += sizeof(unsigned char); //c@+\n");
+				lcompile("\tpush(tos); tos = *((unsigned char*)at); at += sizeof(unsigned char); // b@+\n");
 				continue;
 			}
 
-			if (!strcmp("c@-", parsed))
+			if (!strcmp("b@-", parsed))
 			{
-				lcompile("\tpush(tos); tos = *((unsigned char*)at); at -= sizeof(unsigned char); //c@-\n");
+				lcompile("\tpush(tos); tos = *((unsigned char*)at); at -= sizeof(unsigned char); // b@-\n");
 				continue;
 			}
 
-			if (!strcmp("c!+", parsed))
+			if (!strcmp("b!+", parsed))
 			{
-				lcompile("\t*((unsigned char*)at) = tos; tos = pop; at += sizeof(unsigned char); //c!+\n");
+				lcompile("\t*((unsigned char*)at) = tos; tos = pop; at += sizeof(unsigned char); // b!+\n");
 				continue;
 			}
 
-			if (!strcmp("c!-", parsed))
+			if (!strcmp("b!-", parsed))
 			{
-				lcompile("\t*((unsigned char*)at) = tos; tos = pop; at -= sizeof(unsigned char); //c!-\n");
-				continue;
-			}
-
-			if (!strcmp("1+", parsed))
-			{
-				lcompile("\ttos++; //1+\n");
-				continue;
-			}
-
-			if (!strcmp("1-", parsed))
-			{
-				lcompile("\ttos--; //1-\n");
-				continue;
-			}
-
-			if (!strcmp("2*", parsed))
-			{
-				lcompile("\ttos = tos<<1; //2*\n");
-				continue;
-			}
-
-			if (!strcmp("2/", parsed))
-			{
-				lcompile("\ttos = tos>>1; //2/\n");
-				continue;
-			}
-
-			if (!strcmp("0=", parsed))
-			{
-				lcompile("\ttos = tos == 0?-1:0; //0=\n");
-				continue;
-			}
-
-			if (!strcmp("0<>", parsed))
-			{
-				lcompile("\ttos = tos != 0?-1:0; //0<>\n");
-				continue;
-			}
-
-			if (!strcmp("0<", parsed))
-			{
-				lcompile("\ttos = tos < 0?-1:0; //0<\n");
-				continue;
-			}
-
-			if (!strcmp("0>", parsed))
-			{
-				lcompile("\ttos = tos > 0?-1:0; //0>\n");
+				lcompile("\t*((unsigned char*)at) = tos; tos = pop; at -= sizeof(unsigned char); // b!-\n");
 				continue;
 			}
 
 			if (!strcmp("abs", parsed))
 			{
-				lcompile("\tif (tos < 0) tos *= -1; //abs\n");
+				lcompile("\tif (tos < 0) tos *= -1; // abs\n");
 				continue;
 			}
 
 			if (!strcmp("neg", parsed))
 			{
-				lcompile("\ttos *= -1; //neg\n");
-				continue;
-			}
-
-			if ((n = find_name(parsed)))
-			{
-				lcompile("\ttos = f_word%d(tos); //%s\n", n, parsed);
+				lcompile("\ttos *= -1; // neg\n");
 				continue;
 			}
 
 			if (!strcmp("@", parsed))
 			{
-				lcompile("\ttos = *((cell*)tos); //@\n");
+				lcompile("\ttos = *((cell*)tos); // @\n");
 				continue;
 			}
 			if (!strcmp("!", parsed))
 			{
-				lcompile("\t*((cell*)tos) = pop; tos = pop; //!\n");
+				lcompile("\t*((cell*)tos) = pop; tos = pop; // !\n");
 				continue;
 			}
-			if (!strcmp("+!", parsed))
+			if (!strcmp("b@", parsed))
 			{
-				lcompile("\t*((cell*)tos) += pop; tos = pop; //+!\n");
+				lcompile("\ttos = *((unsigned char*)tos); // b@\n");
 				continue;
 			}
-			if (!strcmp("c@", parsed))
+			if (!strcmp("b!", parsed))
 			{
-				lcompile("\ttos = *((unsigned char*)tos); //c@\n");
-				continue;
-			}
-			if (!strcmp("c!", parsed))
-			{
-				lcompile("\t*((unsigned char*)tos) = pop; tos = pop; //c!\n");
+				lcompile("\t*((unsigned char*)tos) = pop; tos = pop; // b!\n");
 				continue;
 			}
 			if (!strcmp("=", parsed))
 			{
-				lcompile("\ttos = pop == tos ? -1:0; //=\n");
-				continue;
-			}
-			if (!strcmp("<>", parsed))
-			{
-				lcompile("\ttos = pop != tos ? -1:0; //<>\n");
+				lcompile("\ttos = pop == tos ? -1:0; // =\n");
 				continue;
 			}
 			if (!strcmp("<", parsed))
 			{
-				lcompile("\ttos = pop < tos ? -1:0; //<\n");
+				lcompile("\ttos = pop < tos ? -1:0; // <\n");
 				continue;
 			}
 			if (!strcmp(">", parsed))
 			{
-				lcompile("\ttos = pop > tos ? -1:0; //>\n");
+				lcompile("\ttos = pop > tos ? -1:0; // >\n");
+				continue;
+			}
+			if (!strcmp("<>", parsed))
+			{
+				lcompile("\ttos = pop != tos ? -1:0; // <>\n");
 				continue;
 			}
 			if (!strcmp("<=", parsed))
 			{
-				lcompile("\ttos = pop <= tos ? -1:0; //<=\n");
+				lcompile("\ttos = pop <= tos ? -1:0; // <=\n");
 				continue;
 			}
 			if (!strcmp(">=", parsed))
 			{
-				lcompile("\ttos = pop >= tos ? -1:0; //>=\n");
+				lcompile("\ttos = pop >= tos ? -1:0; // >=\n");
 				continue;
 			}
-			if (!strcmp("and", parsed))
+			if (!strcmp("&", parsed) || !strcmp("and", parsed))
 			{
 				lcompile("\ttos &= pop;\n");
 				continue;
 			}
-			if (!strcmp("xor", parsed))
+			if (!strcmp("^", parsed) || !strcmp("xor", parsed))
 			{
 				lcompile("\ttos ^= pop;\n");
 				continue;
 			}
-			if (!strcmp("or", parsed))
+			if (!strcmp("|", parsed) || !strcmp("or", parsed))
 			{
 				lcompile("\ttos |= pop;\n");
 				continue;
 			}
+			if (!strcmp("~", parsed) || !strcmp("inv", parsed))
+			{
+				lcompile("\ttos = ~tos;\n");
+				continue;
+			}
 			if (!strcmp("min", parsed))
 			{
-				lcompile("\t{ cell tmp = pop; tos = tmp < tos ? tmp:tos; } //min\n");
+				lcompile("\t{ cell tmp = pop; tos = tmp < tos ? tmp:tos; } // min\n");
 				continue;
 			}
 			if (!strcmp("max", parsed))
 			{
-				lcompile("\t{ cell tmp = pop; tos = tmp > tos ? tmp:tos; } //max\n");
+				lcompile("\t{ cell tmp = pop; tos = tmp > tos ? tmp:tos; } // max\n");
 				continue;
 			}
-			if (!strcmp("+", parsed))
+			if (!strcmp("+", parsed) || !strcmp("add", parsed))
 			{
 				lcompile("\ttos += pop;\n");
 				continue;
 			}
-			if (!strcmp("-", parsed))
+			if (!strcmp("-", parsed) || !strcmp("sub", parsed))
 			{
 				lcompile("\ttos = pop-tos;\n");
 				continue;
 			}
-			if (!strcmp("*", parsed))
+			if (!strcmp("*", parsed) || !strcmp("mul", parsed))
 			{
 				lcompile("\ttos *= pop;\n");
 				continue;
 			}
-			if (!strcmp("/", parsed))
+			if (!strcmp("/", parsed) || !strcmp("div", parsed))
 			{
 				lcompile("\ttos = pop/tos;\n");
 				continue;
 			}
-			if (!strcmp("mod", parsed))
+			if (!strcmp("mod", parsed) || !strcmp("%", parsed))
 			{
 				lcompile("\ttos = pop%%tos;\n");
 				continue;
 			}
-			if (!strcmp("shl", parsed))
+			if (!strcmp("shl", parsed) || !strcmp("<<", parsed))
 			{
 				lcompile("\ttos = pop<<tos;\n");
 				continue;
 			}
-			if (!strcmp("shr", parsed))
+			if (!strcmp("shr", parsed) || !strcmp(">>", parsed))
 			{
 				lcompile("\ttos = pop>>tos;\n");
+				continue;
+			}
+			if (!strcmp("true", parsed))
+			{
+				lcompile("\tpush(tos); tos = -1; // true\n");
+				continue;
+			}
+			if (!strcmp("false", parsed))
+			{
+				lcompile("\tpush(tos); tos = 0; // false\n");
+				continue;
+			}
+			if (!strcmp("null", parsed))
+			{
+				lcompile("\tpush(tos); tos = 0; // null\n");
 				continue;
 			}
 			if (!strcmp("cell+", parsed))
@@ -911,68 +900,62 @@ main (int argc, char *argv[])
 			}
 			if (!strcmp("dup", parsed))
 			{
-				lcompile("\tpush(tos); //dup\n");
+				lcompile("\tpush(tos); // dup\n");
 				continue;
 			}
 			if (!strcmp("drop", parsed))
 			{
-				lcompile("\ttos = pop; //drop\n");
+				lcompile("\ttos = pop; // drop\n");
 				continue;
 			}
 			if (!strcmp("over", parsed))
 			{
-				lcompile("\tpush(tos); tos = sp[-2]; //over\n");
+				lcompile("\tpush(tos); tos = sp[-2]; // over\n");
 				continue;
 			}
 			if (!strcmp("swap", parsed))
 			{
-				lcompile("\t{ cell tmp = tos; tos = sp[-1]; sp[-1] = tmp; } //swap\n");
+				lcompile("\t{ cell tmp = tos; tos = sp[-1]; sp[-1] = tmp; } // swap\n");
 				continue;
 			}
 			if (!strcmp("nip", parsed))
 			{
-				lcompile("\tsp--; //nip\n");
+				lcompile("\tsp--; // nip\n");
 				continue;
 			}
 			if (!strcmp("tuck", parsed))
 			{
-				lcompile("\t{ cell tmp = pop; push(tos); push(tmp); } //tuck\n");
+				lcompile("\t{ cell tmp = pop; push(tos); push(tmp); } // tuck\n");
 				continue;
 			}
 			if (!strcmp("pick", parsed))
 			{
-				lcompile("\ttos = sp[(tos+1)*-1]; //pick\n");
+				lcompile("\ttos = sp[(tos+1)*-1]; // pick\n");
 				continue;
 			}
 			if (!strcmp("rot", parsed))
 			{
-				lcompile("\t{ cell tmp = tos; tos = sp[-2]; sp[-2] = sp[-1]; sp[-1] = tmp; } //rot\n");
+				lcompile("\t{ cell tmp = tos; tos = sp[-2]; sp[-2] = sp[-1]; sp[-1] = tmp; } // rot\n");
 				continue;
 			}
 			if (!strcmp("depth", parsed))
 			{
-				lcompile("\tpush(tos); tos = sp-stack-1; //depth\n");
+				lcompile("\tpush(tos); tos = sp-stack-1; // depth\n");
 				continue;
 			}
 			if (!strcmp("push", parsed))
 			{
-				lcompile("\t*asp++ = tos; tos = pop; //push\n");
+				lcompile("\t*asp++ = tos; tos = pop; // push\n");
 				continue;
 			}
 			if (!strcmp("pop", parsed))
 			{
-				lcompile("\tpush(tos); tos = *--asp; //pop\n");
+				lcompile("\tpush(tos); tos = *--asp; // pop\n");
 				continue;
 			}
 			if (!strcmp("top", parsed))
 			{
-				lcompile("\tpush(tos); tos = asp[-1]; //top\n");
-				continue;
-			}
-
-			if (!strcmp(".", parsed))
-			{
-				lcompile("\ttos = f_dot(tos);\n");
+				lcompile("\tpush(tos); tos = asp[-1]; // top\n");
 				continue;
 			}
 
@@ -997,51 +980,157 @@ main (int argc, char *argv[])
 			if (!strcmp("at-xy", parsed))
 			{
 				lcompile("\ttos = f_at_xy(tos);\n");
+				f_at_xy = 1;
 				continue;
 			}
 
 			if (!strcmp("max-xy", parsed))
 			{
 				lcompile("\ttos = f_max_xy(tos);\n");
+				f_max_xy = 1;
 				continue;
 			}
 
 			if (!strcmp("key?", parsed))
 			{
 				lcompile("\ttos = f_keyq(tos);\n");
+				f_keyq = 1;
 				continue;
 			}
 
-			if (!strcmp("usec", parsed))
+			if (!strcmp("microsleep", parsed))
 			{
-				lcompile("\tusleep(tos); tos = pop;\n");
+				lcompile("\tusleep(tos); tos = pop; // usleep\n");
+				continue;
+			}
+
+			if (!strcmp("microtime", parsed))
+			{
+				lcompile("\t{ struct timeval tv; gettimeofday(&tv, NULL);");
+				lcompile(" push(tos); tos = 1000000 * tv.sec + tv.usec; } // utime\n");
 				continue;
 			}
 
 			if (!strcmp("arg", parsed))
 			{
-				lcompile("\ttos = tos >= 0 && tos < argc ? (cell)argv[tos]: 0; //arg\n");
+				lcompile("\ttos = tos >= 0 && tos < argc ? (cell)argv[tos]: 0; // arg\n");
 				continue;
 			}
 
 			if (!strcmp("count", parsed))
 			{
-				lcompile("\ttos = strlen((char*)tos); //count\n");
+				lcompile("\ttos = strlen((char*)tos); // count\n");
 				continue;
 			}
 
 			if (!strcmp("execute", parsed))
 			{
-				lcompile("\t{ cell tmp = tos; tos = pop; if (tmp) tos = ((word)tmp)(tos); } //execute\n");
+				lcompile("\t{ cell tmp = tos; tos = pop; if (tmp) tos = ((word)tmp)(tos); } // execute\n");
 				continue;
 			}
 
-			if (
-				match("^(bye|key|allocate|resize|free|place|cmove|move)$", parsed) ||
-				match("^(number|slurp|blurt|compare|match|split|format|getenv)$", parsed)
-			)
+			if (!strcmp("place", parsed))
 			{
-				lcompile("\ttos = f_%s(tos);\n", parsed);
+				lcompile("\t{ char *dst = (char*)tos, *src = (char*)pop; memmove(dst, src, strlen(src)+1); tos = pop; } // place\n");
+				continue;
+			}
+
+			if (!strcmp("move", parsed))
+			{
+				lcompile("\t{ char *dst = (char*)pop, *src = (char*)pop; memmove(dst, src, tos); tos = pop; } // move\n");
+				continue;
+			}
+
+			if (!strcmp("allocate", parsed))
+			{
+				lcompile("\ttos = (cell)calloc(1, tos); // allocate\n");
+				continue;
+			}
+
+			if (!strcmp("resize", parsed))
+			{
+				lcompile("\ttos = (cell)realloc((void*)pop, tos); // resize\n");
+				continue;
+			}
+
+			if (!strcmp("free", parsed))
+			{
+				lcompile("\tfree((void*)tos); tos = pop; // free\n");
+				continue;
+			}
+
+			if (!strcmp("getenv", parsed))
+			{
+				lcompile("\ttos = (cell)getenv((char*)tos); // getenv\n");
+				continue;
+			}
+
+			if (!strcmp("format", parsed))
+			{
+				lcompile("\ttos = f_format(tos); // format\n");
+				f_format = 1;
+				continue;
+			}
+
+			if (!strcmp("match", parsed))
+			{
+				lcompile("\ttos = f_match(tos); // match\n");
+				f_match = 1;
+				continue;
+			}
+
+			if (!strcmp("split", parsed))
+			{
+				lcompile("\ttos = f_split(tos); // split\n");
+				f_split = 1;
+				continue;
+			}
+
+			if (!strcmp("key", parsed))
+			{
+				lcompile("\ttos = f_key(tos); // key\n");
+				f_key = 1;
+				continue;
+			}
+
+			if (!strcmp("compare", parsed))
+			{
+				lcompile("\ttos = f_compare(tos); // compare\n");
+				f_compare = 1;
+				continue;
+			}
+
+			if (!strcmp("slurp", parsed))
+			{
+				lcompile("\ttos = f_slurp(tos); // slurp\n");
+				f_slurp = 1;
+				continue;
+			}
+
+			if (!strcmp("blurt", parsed))
+			{
+				lcompile("\ttos = f_blurt(tos); // blurt\n");
+				f_blurt = 1;
+				continue;
+			}
+
+			if (!strcmp("number", parsed))
+			{
+				lcompile("\ttos = f_number(tos); // number\n");
+				f_number = 1;
+				continue;
+			}
+
+			if (!strcmp("fork", parsed))
+			{
+				lcompile("\ttos = f_fork(tos); // fork\n");
+				f_fork = 1;
+				continue;
+			}
+
+			if (!strcmp("bye", parsed))
+			{
+				lcompile("\ttos = f_bye(tos); // bye\n");
 				continue;
 			}
 
@@ -1065,6 +1154,72 @@ main (int argc, char *argv[])
 				continue;
 			}
 
+			if (match("^[0-9]+[0-9a-fA-Fx]*[-+*/%=<>]+$", parsed))
+			{
+				int len = strlen(parsed);
+				char op = parsed[len-1];
+				char tmp[1024]; strcpy(tmp, parsed);
+				tmp[len-1] = 0;
+
+				if (number(tmp, &n))
+				{
+					switch (op)
+					{
+						case '+':
+							lcompile("\ttos += %ld; // %s\n", n, parsed);
+							break;
+						case '-':
+							lcompile("\ttos -= %ld; // %s\n", n, parsed);
+							break;
+						case '*':
+							lcompile("\ttos *= %ld; // %s\n", n, parsed);
+							break;
+						case '/':
+							lcompile("\ttos /= %ld; // %s\n", n, parsed);
+							break;
+						case '%':
+							lcompile("\ttos %= %ld; // %s\n", n, parsed);
+							break;
+						case '=':
+							lcompile("\ttos = tos == %ld ?-1:0; // %s\n", n, parsed);
+							break;
+						case '<':
+							lcompile("\ttos = tos < %ld ?-1:0; // %s\n", n, parsed);
+							break;
+						case '>':
+							lcompile("\ttos = tos > %ld ?-1:0; // %s\n", n, parsed);
+							break;
+					}
+					continue;
+				}
+			}
+
+			if (match("^[0-9]+[0-9a-fA-Fx]*(<>|>=|<=)$", parsed))
+			{
+				int len = strlen(parsed);
+				char tmp[1024]; strcpy(tmp, parsed);
+				tmp[len-2] = 0;
+
+				if (number(tmp, &n))
+				{
+					if (!strcmp(parsed + len - 2, "<>"))
+					{
+						lcompile("\ttos = tos != %ld ?-1:0; // %s\n", n, parsed);
+					}
+					else
+					if (!strcmp(parsed + len - 2, "<="))
+					{
+						lcompile("\ttos = tos <= %ld ?-1:0; // %s\n", n, parsed);
+					}
+					else
+					if (!strcmp(parsed + len - 2, ">="))
+					{
+						lcompile("\ttos = tos >= %ld ?-1:0; // %s\n", n, parsed);
+					}
+					continue;
+				}
+			}
+
 			errx(EXIT_FAILURE, "what? %s", parsed);
 		}
 
@@ -1082,6 +1237,19 @@ main (int argc, char *argv[])
 	{
 		printf("%s", line);
 	}
+
+	if (f_format)  printf("#define F_FORMAT  1\n");
+	if (f_at_xy)   printf("#define F_AT_XY   1\n");
+	if (f_max_xy)  printf("#define F_MAX_XY  1\n");
+	if (f_match)   printf("#define F_MATCH   1\n");
+	if (f_split)   printf("#define F_SPLIT   1\n");
+	if (f_key)     printf("#define F_KEY     1\n");
+	if (f_keyq)    printf("#define F_KEYQ    1\n");
+	if (f_compare) printf("#define F_COMPARE 1\n");
+	if (f_slurp)   printf("#define F_SLURP   1\n");
+	if (f_blurt)   printf("#define F_BLURT   1\n");
+	if (f_number)  printf("#define F_NUMBER  1\n");
+	if (f_fork)    printf("#define F_FORK    1\n");
 
 	printf("%s\n\n", all_proto);
 	printf("%s\n\n", all_local);
