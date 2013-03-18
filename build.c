@@ -37,6 +37,7 @@ static cell* __restrict__ asp;
 
 #define push(n) (*sp++ = (cell)(n))
 #define pop (*--sp)
+#define call(w) (tos = (w)(tos))
 
 static cell f_format(cell tos);
 static cell f_at_xy(cell tos);
