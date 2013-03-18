@@ -413,7 +413,7 @@ stack 'stack wrap redos
 : unmark ( -- )
 	-1 to marker ;
 
-: remark ( -- )
+: remark ( -- n )
 	marker 0< if mark end marker ;
 
 : range ( -- n )
@@ -1201,8 +1201,7 @@ stack 'stack wrap redos
 		if
 			range caret tuck + my! 0
 			begin search caret my < while 1+ end
-			swap to caret for search replace end
-			exit
+			swap to caret for search replace end exit
 		end
 		replace ;
 

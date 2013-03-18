@@ -641,7 +641,7 @@ main (int argc, char *argv[])
 			// high-level words
 			if ((n = find_name(parsed)))
 			{
-				lcompile("\ttos = f_word%d(tos); // %s\n", n, parsed);
+				lcompile("\tcall(f_word%d); // %s\n", n, parsed);
 				continue;
 			}
 
@@ -979,21 +979,21 @@ main (int argc, char *argv[])
 
 			if (!strcmp("at-xy", parsed))
 			{
-				lcompile("\ttos = f_at_xy(tos);\n");
+				lcompile("\tcall(f_at_xy);\n");
 				f_at_xy = 1;
 				continue;
 			}
 
 			if (!strcmp("max-xy", parsed))
 			{
-				lcompile("\ttos = f_max_xy(tos);\n");
+				lcompile("\tcall(f_max_xy);\n");
 				f_max_xy = 1;
 				continue;
 			}
 
 			if (!strcmp("key?", parsed))
 			{
-				lcompile("\ttos = f_keyq(tos);\n");
+				lcompile("\tcall(f_keyq);\n");
 				f_keyq = 1;
 				continue;
 			}
@@ -1067,70 +1067,70 @@ main (int argc, char *argv[])
 
 			if (!strcmp("format", parsed))
 			{
-				lcompile("\ttos = f_format(tos); // format\n");
+				lcompile("\tcall(f_format); // format\n");
 				f_format = 1;
 				continue;
 			}
 
 			if (!strcmp("match", parsed))
 			{
-				lcompile("\ttos = f_match(tos); // match\n");
+				lcompile("\tcall(f_match); // match\n");
 				f_match = 1;
 				continue;
 			}
 
 			if (!strcmp("split", parsed))
 			{
-				lcompile("\ttos = f_split(tos); // split\n");
+				lcompile("\tcall(f_split); // split\n");
 				f_split = 1;
 				continue;
 			}
 
 			if (!strcmp("key", parsed))
 			{
-				lcompile("\ttos = f_key(tos); // key\n");
+				lcompile("\tcall(f_key); // key\n");
 				f_key = 1;
 				continue;
 			}
 
 			if (!strcmp("compare", parsed))
 			{
-				lcompile("\ttos = f_compare(tos); // compare\n");
+				lcompile("\tcall(f_compare); // compare\n");
 				f_compare = 1;
 				continue;
 			}
 
 			if (!strcmp("slurp", parsed))
 			{
-				lcompile("\ttos = f_slurp(tos); // slurp\n");
+				lcompile("\tcall(f_slurp); // slurp\n");
 				f_slurp = 1;
 				continue;
 			}
 
 			if (!strcmp("blurt", parsed))
 			{
-				lcompile("\ttos = f_blurt(tos); // blurt\n");
+				lcompile("\tcall(f_blurt); // blurt\n");
 				f_blurt = 1;
 				continue;
 			}
 
 			if (!strcmp("number", parsed))
 			{
-				lcompile("\ttos = f_number(tos); // number\n");
+				lcompile("\tcall(f_number); // number\n");
 				f_number = 1;
 				continue;
 			}
 
 			if (!strcmp("fork", parsed))
 			{
-				lcompile("\ttos = f_fork(tos); // fork\n");
+				lcompile("\tcall(f_fork); // fork\n");
 				f_fork = 1;
 				continue;
 			}
 
 			if (!strcmp("bye", parsed))
 			{
-				lcompile("\ttos = f_bye(tos); // bye\n");
+				lcompile("\tcall(f_bye); // bye\n");
 				continue;
 			}
 
