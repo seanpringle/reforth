@@ -39,15 +39,14 @@
 \ | i            | Enter INSERT mode at the caret            |
 \ | o            | Insert a blank line and enter INSERT mode |
 \ | /            | Search for text by posix regex            |
-\ | n            | Search for next occurrence                |
+\ | s            | Search for next occurrence                |
 \ | \            | Set replacement text                      |
 \ | r            | Replace current search match              |
 \ | m            | Mark the current line                     |
-\ | y            | Copy from mark to current line            |
+\ | c            | Copy from mark to current line            |
 \ | d            | Copy and delete from mark to current line |
 \ | p            | Paste copied text after current line      |
 \ | g            | Go to the marked line                     |
-\ | :            | Access the Forth shell                    |
 \ | Insert       | Enter INSERT mode (same as 'i')           |
 \ | Tab          | Open the menu                             |
 \ ------------------------------------------------------------
@@ -426,7 +425,7 @@ stack 'stack wrap redos
 	caret here at! at range for char b!+ right end 0 b!+ clip to caret ;
 
 : paste ( -- )
-	away right clipboard slurp dup inserts free ;
+	away char 0= if \n insert end right clipboard slurp dup inserts free ;
 
 : delete ( -- )
 	here at! at range for remove b!+ end 0 b!+ clip ;
@@ -853,7 +852,7 @@ stack 'stack wrap redos
 		point "^(function|class)\s+[^[:blank:]]+" match?
 		if fg-keyword word fg-define word exit end
 
-		point "^(if|else|elsif|for|foreach|while|function|class|return|var|new)[^a-zA-Z0-9_]" match?
+		point "^(if|else|elsif|for|foreach|while|function|class|return|var|new|extends|switch)[^a-zA-Z0-9_]" match?
 		if fg-keyword word exit end
 
 		point "^[-]{0,1}(0x|[0-9]){1}[0-9a-fA-F]*" match?
@@ -1085,7 +1084,7 @@ stack 'stack wrap redos
 	: statusbar ( -- )
 		fg-status bg-status .s
 		mode if "-- INSERT --" else "-- COMMAND --" end type
-		cur-col cline " %d,%d" print
+		cur-col 1+ cline 1+ " %d,%d" print
 		srch b@ if srch " n[%s]" print end
 		srch b@ if repl " r[%s]" print end
 		name basename " %s" print erase ;
@@ -1138,17 +1137,11 @@ stack 'stack wrap redos
 	: idiots ( -- )
 		edit:escseq dup count + 1- b@ `H = if home else away end ;
 
-	: search! ( -- )
-		srch! search ;
-
-	: replace! ( -- )
-		repl! ;
-
 	: newline ( -- )
 		away enter caret times1 1- for enter end to caret imode ;
 
 	: goto ( -- )
-		digits b@ if 0 to caret times for down end exit end
+		digits b@ if 0 to caret times 1- 0 max for down end exit end
 		marker 1+ 0> if marker to caret exit end 0 to caret ;
 
 	: gend ( -- )
@@ -1199,9 +1192,9 @@ stack 'stack wrap redos
 		end
 		marker 1+ 0>
 		if
-			range caret tuck + my! 0
-			begin search caret my < while 1+ end
-			swap to caret for search replace end exit
+			range caret tuck + my! 0 left
+			begin search caret my < while over 1- caret < while 1+ end
+			swap to caret left for search replace end exit
 		end
 		replace ;
 
@@ -1251,16 +1244,16 @@ stack 'stack wrap redos
 
 	'mark     `m ckey !
 	'mark     `M ckey !
-	'yank     `y ckey !
-	'yank     `Y ckey !
+	'yank     `c ckey !
+	'yank     `C ckey !
 	'pastes   `p ckey !
 	'pastes   `P ckey !
 	'deletes  `d ckey !
 	'deletes  `D ckey !
 	'undo     `u ckey !
 	'undo     `U ckey !
-	'searches `n ckey !
-	'searches `N ckey !
+	'searches `s ckey !
+	'searches `S ckey !
 	'replaces `r ckey !
 	'replaces `R ckey !
 	'imode    `i ckey !
@@ -1276,8 +1269,8 @@ stack 'stack wrap redos
 
 	'command  `: ckey !
 	'tagpick  \t ckey !
-	'search!  `/ ckey !
-	'replace! `\ ckey !
+	'srch!    `/ ckey !
+	'repl!    `\ ckey !
 
 	'go-up    `k ckey !
 	'go-up    `K ckey !
