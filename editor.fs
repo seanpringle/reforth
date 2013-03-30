@@ -316,6 +316,8 @@ format copy value clipboard
 				my ins right
 				leave
 			end
+
+			leave
 		end
 		my ;
 
