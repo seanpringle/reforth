@@ -1,6 +1,6 @@
 CFLAGS?=-Wall -Wno-unused -O2 -g -std=c99
 
-all: clean parser editor tetris
+all: clean parser editor
 
 parser:
 	$(CC) $(CFLAGS) -o reforth reforth.c
@@ -8,10 +8,6 @@ parser:
 editor:
 	./reforth editor.fs >editor.c
 	$(CC) $(CFLAGS) -o editor editor.c
-
-tetris:
-	./reforth tetris.fs >tetris.c
-	$(CC) $(CFLAGS) -o tetris tetris.c
 
 bench:
 	./reforth test.fs >test.c
@@ -21,4 +17,4 @@ bench:
 	sh -c "time ./test"
 
 clean:
-	rm -f reforth editor tetris test
+	rm -f reforth editor test
