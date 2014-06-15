@@ -7,8 +7,6 @@
 #include <string.h>
 #include <unistd.h>
 #include <poll.h>
-#include <time.h>
-#include <assert.h>
 #include <regex.h>
 #include <assert.h>
 #include <signal.h>
@@ -28,85 +26,34 @@ static cell stack[128], astack[128];
 
 // GCC global register variables FTW!
 #if defined(__x86_64__) && defined(__GNUC__) && !defined(__clang__)
-register cell *sp __asm__("r15");
-static cell* __restrict__ asp;
+register cell *sp asm("r15");
+static cell *asp;
 #else
-static cell* __restrict__ sp;
-static cell* __restrict__ asp;
+static cell *sp;
+static cell *asp;
 #endif
 
 #define push(n) (*sp++ = (cell)(n))
 #define pop (*--sp)
-#define call(w) (tos = (w)(tos))
 
-static cell f_format(cell tos);
-static cell f_at_xy(cell tos);
-static cell f_max_xy(cell tos);
-static cell f_match(cell tos);
-static cell f_split(cell tos);
-static cell f_key(cell tos);
-static cell f_keyq(cell tos);
-static cell f_compare(cell tos);
-static cell f_slurp(cell tos);
-static cell f_blurt(cell tos);
-static cell f_number(cell tos);
-static cell f_fork(cell tos);
-
-static regex_t* regex(char *pattern);
-
-struct termios old_tio, new_tio;
-
-cell
-f_bye(cell tos)
+static cell
+f_dot(cell tos)
 {
-	if (isatty(STDIN_FILENO))
-		tcsetattr(STDIN_FILENO, TCSANOW, &old_tio);
-	exit(0);
-	return tos;
+	char tmp[10];
+	snprintf(tmp, 10, "%ld ", tos);
+	write(fileno(stdout), tmp, strlen(tmp));
+	return pop;
 }
 
-void handler(int sig)
-{
-	if (sig == SIGTERM || sig == SIGQUIT || (isatty(STDIN_FILENO) && sig == SIGHUP))
-	{
-		f_bye(0);
-	}
-}
+static cell f_place(cell tos) { char *dst = (char*)tos, *src = (char*)pop; memmove(dst, src, strlen(src)+1); return pop; }
+static cell f_cmove(cell tos) { char *dst = (char*)pop, *src = (char*)pop; memmove(dst, src, tos); return pop; }
+static cell f_move(cell tos)  { char *dst = (char*)pop, *src = (char*)pop; memmove(dst, src, tos * sizeof(cell)); return pop; }
 
-// ***FORTH***
+static cell f_allocate(cell tos) { return (cell)calloc(1, tos); }
+static cell f_resize(cell tos) { return (cell)realloc((void*)pop, tos); }
+static cell f_free(cell tos) { free((void*)tos); return pop; }
 
-int
-main (int _argc, char *_argv[])
-{
-	argc = _argc;
-	argv = _argv;
-
-	signal(SIGTERM, handler);
-	signal(SIGQUIT, handler);
-	signal(SIGHUP,  handler);
-	signal(SIGINT,  handler);
-
-	if (isatty(STDIN_FILENO))
-	{
-		tcgetattr(STDIN_FILENO,&old_tio);
-
-		new_tio = old_tio;
-		new_tio.c_lflag &= (~ICANON & ~ECHO);
-		new_tio.c_cc[VTIME] = 0;
-		new_tio.c_cc[VMIN] = 1;
-		tcsetattr(STDIN_FILENO, TCSANOW, &new_tio);
-	}
-
-	sp  = stack;
-	asp = astack;
-
-// ***MAIN***
-
-	f_bye(0);
-	return 0;
-}
-
-#ifdef F_FORMAT
+static cell f_getenv(cell tos) { return (cell)getenv((char*)tos); }
 
 static int format_i;
 #define FORMAT_BUF 1024*64
@@ -166,10 +113,6 @@ f_format(cell tos)
 	return (cell)buf;
 }
 
-#endif
-
-#ifdef F_AT_XY
-
 static cell
 f_at_xy(cell tos)
 {
@@ -186,10 +129,6 @@ f_at_xy(cell tos)
 	return pop;
 }
 
-#endif
-
-#ifdef F_MAX_XY
-
 static cell
 f_max_xy(cell tos)
 {
@@ -200,9 +139,25 @@ f_max_xy(cell tos)
 	return ws.ws_row-1;
 }
 
-#endif
+static cell
+f_key(cell tos)
+{
+	push(tos);
+	char c;
+	read(STDIN_FILENO, &c, 1);
+	return c;
+}
 
-#if defined(F_MATCH) || defined(F_SPLIT)
+static cell
+f_keyq(cell tos)
+{
+	push(tos);
+	struct pollfd fds;
+	fds.fd = STDIN_FILENO;
+	fds.events = POLLIN;
+	fds.revents = 0;
+	return poll(&fds, 1, 0) > 0 ? -1:0;
+}
 
 #define REGEX_CACHE 4
 static char *re_patterns[REGEX_CACHE];
@@ -243,15 +198,11 @@ regex(char *pattern)
 		if (regcomp(re, pattern, REG_EXTENDED) != 0)
 		{
 			fprintf(stderr, "regex compile failure: %s", pattern);
-			free(re_patterns[i]); re_patterns[i] = NULL; re = NULL;
+			exit(1);
 		}
 	}
 	return re;
 }
-
-#endif
-
-#ifdef F_MATCH
 
 // POSIX regex match
 static cell
@@ -261,7 +212,7 @@ f_match(cell tos)
 	char *subject = (char*)pop;
 	int r = 0; regmatch_t pmatch;
 	regex_t *re = regex(pattern);
-	if (re && subject)
+	if (subject)
 	{
 		r = regexec(re, subject, 1, &pmatch, 0) == 0 ?-1:0;
 		subject += r ? pmatch.rm_so: strlen(subject);
@@ -269,10 +220,6 @@ f_match(cell tos)
 	push(subject);
 	return (cell)r;
 }
-
-#endif
-
-#ifdef F_SPLIT
 
 // POSIX regex split
 static cell
@@ -282,7 +229,7 @@ f_split(cell tos)
 	char *subject = (char*)pop;
 	int r = 0; regmatch_t pmatch;
 	regex_t *re = regex(pattern);
-	if (re && subject)
+	if (subject)
 	{
 		r = regexec(re, subject, 1, &pmatch, 0) == 0 ?-1:0;
 		if (r)
@@ -298,38 +245,6 @@ f_split(cell tos)
 	push(subject);
 	return (cell)r;
 }
-
-#endif
-
-#ifdef F_KEY
-
-static cell
-f_key(cell tos)
-{
-	push(tos);
-	char c;
-	read(STDIN_FILENO, &c, 1);
-	return c;
-}
-
-#endif
-
-#ifdef F_KEYQ
-
-static cell
-f_keyq(cell tos)
-{
-	push(tos);
-	struct pollfd fds;
-	fds.fd = STDIN_FILENO;
-	fds.events = POLLIN;
-	fds.revents = 0;
-	return poll(&fds, 1, 0) > 0 ? -1:0;
-}
-
-#endif
-
-#ifdef F_COMPARE
 
 static cell
 f_compare(cell tos)
@@ -352,10 +267,6 @@ f_compare(cell tos)
 		tos = strcmp(s1, s2);
 	return tos;
 }
-
-#endif
-
-#ifdef F_SLURP
 
 // Read a file into memory
 static cell
@@ -381,10 +292,6 @@ f_slurp(cell tos)
 	return (cell)pad;
 }
 
-#endif
-
-#ifdef F_BLURT
-
 // Write a file to disk
 static cell
 f_blurt(cell tos)
@@ -397,10 +304,6 @@ f_blurt(cell tos)
 	fclose(f);
 	return 1;
 }
-
-#endif
-
-#ifdef F_NUMBER
 
 // Convert a string to a number
 cell
@@ -451,24 +354,54 @@ f_number(cell tos)
 	return 0;
 }
 
-#endif
-
-#ifdef F_FORK
+struct termios old_tio, new_tio;
 
 cell
-f_fork(cell tos)
+f_bye(cell tos)
 {
-	int pid = fork();
-
-	if (!pid)
-	{
-		word w = (word)tos;
-		tos = w(pop);
-		tos = f_bye(tos);
-	}
-
-	assert(pid > 0);
-	return pid;
+	if (isatty(STDIN_FILENO))
+		tcsetattr(STDIN_FILENO, TCSANOW, &old_tio);
+	exit(0);
+	return tos;
 }
 
-#endif
+void handler(int sig)
+{
+	if (sig == SIGTERM || sig == SIGQUIT || (isatty(STDIN_FILENO) && sig == SIGHUP))
+	{
+		f_bye(0);
+	}
+}
+
+// ***FORTH***
+
+int
+main (int _argc, char *_argv[])
+{
+	argc = _argc;
+	argv = _argv;
+
+	signal(SIGTERM, handler);
+	signal(SIGQUIT, handler);
+	signal(SIGHUP,  handler);
+	signal(SIGINT,  handler);
+
+	if (isatty(STDIN_FILENO))
+	{
+		tcgetattr(STDIN_FILENO,&old_tio);
+
+		new_tio = old_tio;
+		new_tio.c_lflag &= (~ICANON & ~ECHO);
+		new_tio.c_cc[VTIME] = 0;
+		new_tio.c_cc[VMIN] = 1;
+		tcsetattr(STDIN_FILENO, TCSANOW, &new_tio);
+	}
+
+	sp  = stack;
+	asp = astack;
+
+// ***MAIN***
+
+	f_bye(0);
+	return 0;
+}
