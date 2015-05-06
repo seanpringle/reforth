@@ -10,36 +10,27 @@ generic:
 
 shell:
 	./fstoc base.fs --turnkey shell.fs
-	$(CC) -DTURNKEY -DLIB_SHELL -DLIB_REGEX -DLIB_REGEX -DLIB_FORK $(CFLAGS) -o rf reforth.c
+	$(CC) -DTURNKEY -DLIB_SHELL -DLIB_REGEX -DLIB_FORK -o rf reforth.c $(CFLAGS)
 
 editor:
 	./fstoc base.fs --turnkey editor.fs
-	$(CC) -DTURNKEY -DLIB_SHELL -DLIB_REGEX -DLIB_FORK $(CFLAGS) -o re reforth.c
+	$(CC) -DTURNKEY -DLIB_SHELL -DLIB_REGEX -DLIB_FORK -o re reforth.c $(CFLAGS)
 
 compress:
 	$(CC) -o fstoc fstoc.c $(CFLAGS)
 
 compare:
-	gcc -DLIB_SHELL -DLIB_REGEX -DLIB_FORK $(CFLAGS) -o reforth_gcc reforth.c
+	gcc   -DLIB_SHELL -DLIB_REGEX -DLIB_FORK -o reforth_gcc reforth.c $(CFLAGS)
 	objdump -d reforth_gcc >reforth_gcc.dump
-	clang -DLIB_SHELL -DLIB_REGEX -DLIB_FORK $(CFLAGS) -o reforth_clang reforth.c
+	clang -DLIB_SHELL -DLIB_REGEX -DLIB_FORK -o reforth_clang reforth.c $(CFLAGS)
 	objdump -d reforth_clang >reforth_clang.dump
 
 bench:
-	./parse test.fs >test.c
-	gcc   $(CFLAGS) -o test2gcc   test.c
-	clang $(CFLAGS) -o test2clang test.c
-	sh -c "time ./test2gcc"
-	sh -c "time ./test2clang"
-
-parser:
-	$(CC) $(CFLAGS) -o parse parse.c
-	./parse ed.fs >ed.c
-	$(CC) $(CFLAGS) -Wno-unused -o ed ed.c
-	objdump -d ed >ed.dump
-	#valgrind ./parse ptest.fs >ptest.c
-	#$(CC) $(CFLAGS) -Wno-unused -o ptest ptest.c
-	#objdump -d ptest >ptest.dump
+	./fstoc base.fs --turnkey test.fs
+	gcc   -DTURNKEY -DLIB_SHELL -DLIB_REGEX -DLIB_FORK -o test_gcc   reforth.c $(CFLAGS)
+	clang -DTURNKEY -DLIB_SHELL -DLIB_REGEX -DLIB_FORK -o test_clang reforth.c $(CFLAGS)
+	bash -c "time ./test_gcc"
+	bash -c "time ./test_clang"
 
 test:
 	valgrind ./reforth
