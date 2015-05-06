@@ -1,11 +1,11 @@
-CFLAGS?=-Wall -Wno-unused -O2 -g
+CFLAGS?=-Wall -Wno-unused -Wno-unused-result -O2 -g
 
 normal: compress generic shell editor
 
 generic:
 	./fstoc base.fs
-	$(CC) -DLIB_SHELL -DLIB_REGEX -DLIB_FORK -DLIB_MYSQL $(CFLAGS) -lmysqlclient -o reforth reforth.c
-	$(CC) -DDEBUG -DLIB_SHELL -DLIB_REGEX -DLIB_FORK -DLIB_MYSQL $(CFLAGS) -lmysqlclient -o reforth_debug reforth.c
+	$(CC) -DLIB_SHELL -DLIB_REGEX -DLIB_FORK -DLIB_MYSQL -o reforth reforth.c $(CFLAGS) -lmysqlclient
+	$(CC) -DDEBUG -DLIB_SHELL -DLIB_REGEX -DLIB_FORK -DLIB_MYSQL -o reforth_debug reforth.c $(CFLAGS) -lmysqlclient
 	objdump -d reforth >reforth.dump
 
 shell:

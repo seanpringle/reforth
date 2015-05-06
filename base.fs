@@ -62,6 +62,9 @@ normal
 : hex? ( c -- f )
 	dup my! 64 > my 71 < and my 96 > my 103 < and or my digit? or ;
 
+: basename ( a -- a' )
+	dup "/[^/]+$" match if nip 1+ else drop end ;
+
 \ diagnostics
 
 : print format type ;

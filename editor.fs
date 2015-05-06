@@ -79,6 +79,7 @@
 \ | 35           | Current column                            |
 \ | s[alpha]     | Current search regex is "alpha"           |
 \ | r[beta]      | Current replace string is "beta"          |
+\ | <path>       | Current file                              |
 \ ------------------------------------------------------------
 
  0 value file
@@ -91,6 +92,7 @@
 10 value \n
 13 value \r
  9 value \t
+ 7 value \a
 27 value \e
  8 value \b
 32 value \s
@@ -204,22 +206,22 @@ stack redos
 	clipboard blurt drop ;
 
 : yank ( -- )
-	caret here dup at! range for char c!+ right end 0 c!+ clip to caret ;
+	caret here at! at range for char c!+ right end 0 c!+ clip to caret ;
 
 : paste ( -- )
 	away right clipboard slurp dup inserts free ;
 
 : delete ( -- )
-	here dup at! range for remove c!+ end 0 c!+ clip ;
+	here at! at range for remove c!+ end 0 c!+ clip ;
 
 : rename ( name -- )
-	name place name "\e]0;%s\a" print ;
+	name place name basename "\e]0;%s\a" print ;
 
 : close ( -- )
 	0 to caret unmark 0 to size 0 file c! ;
 
 : read ( -- )
-	name slurp inserts ;
+	name slurp at! at if at inserts end ;
 
 : open ( name -- )
 	close rename read ;
@@ -686,6 +688,9 @@ create input 100 allot
 		: comment ( -- )
 			begin char while char \n = until shunt end ;
 
+		: comment2 ( -- )
+			begin char while point shunt "^\*/" match? if shunt leave end end ;
+
 		: word ( -- )
 			whites begin char name? while shunt end ;
 
@@ -697,6 +702,9 @@ create input 100 allot
 
 		my `/ = at c@ `/ = and
 		if fg-comment comment exit end
+
+		my `/ = at c@ `* = and
+		if fg-comment comment2 exit end
 
 		my `" = my `' = or
 		if fg-string string exit end
@@ -724,10 +732,58 @@ create input 100 allot
 	'gap is gap?
 	'syn is syntax ;
 
+: html ( -- )
+
+	: syn ( -- )
+
+		: shunt ( -- )
+			char put right ;
+
+		: whites ( -- )
+			begin char while char space? while shunt end ;
+
+		: tag ( -- )
+			whites begin char alpha? char digit? or  while shunt end ;
+
+		: string ( delim -- )
+			char shunt begin char my! my while shunt my over = until my `\ = if shunt end end drop ;
+
+		whites char my!
+		my 0= if exit end
+
+		my `" = my `' = or
+		if fg-string string exit end
+
+		my `< =
+		if
+			point "^<[a-zA-Z]+.*>" match?
+			if shunt fg-keyword tag exit end
+
+			point "^</[a-zA-Z]+>" match?
+			if shunt shunt fg-keyword tag exit end
+		end
+
+		point "^[a-zA-Z]+=" match?
+		if fg-variable tag exit end
+
+		fg-normal shunt ;
+
+	: gap ( c -- f )
+		my! my white? my `> = or my `< = or my `= = or ;
+
+	: cln ( -- )
+		default:rtrim name "corvus" match? 0= if default:rtabs end ;
+
+	default
+	'gap is do-gap?
+	'cln is do-clean
+	'syn is do-syntax ;
+
 : detect ( -- )
-	name "\.fs$"  match? if reforth exit end
-	name "\.php$" match? if php     exit end
-	name "\.c$"   match? if c99     exit end
+	name "\.fs$"    match? if reforth exit end
+	name "\.php$"   match? if php     exit end
+	name "\.c$"     match? if c99     exit end
+	name "\.html?$" match? if html    exit end
 	default ;
 
 : display ( -- )
@@ -825,7 +881,7 @@ create input 100 allot
 		cur-col cline " %d,%d" print
 		srch c@ if srch " n[%s]" print end
 		srch c@ if repl " r[%s]" print end
-		erase ;
+		name basename " %s" print erase ;
 
 	: cleanup ( -- )
 		cursor to caret cur-col cur-row at-xy cursor-on ;
@@ -885,8 +941,7 @@ create input 100 allot
 
 	: goto ( -- )
 		digits c@ if 0 to caret times for down end exit end
-		marker 1+ 0> if marker to caret exit end
-		0 to caret ;
+		marker 1+ 0> if marker to caret exit end 0 to caret ;
 
 	: gend ( -- )
 		size to caret home ;
