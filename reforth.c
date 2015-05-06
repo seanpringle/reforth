@@ -84,7 +84,7 @@ typedef struct _word {
 
 enum {
 	// codewords
-	BYE=1, EXIT, ARG, TAIL, GOTO,
+	BYE=1, EXIT, ARG, TAIL, GOTO, DIE,
 
 	IDX, LEAVE, CONT, WHILE, UNTIL, DUP, DROP, OVER, SWAP, PUSH, POP,
 	TOP, NIP, ROT, TUCK, SMY, MY, SAT, AT, ATSP, ATFP, ATCSP, ATCFP, FETCH,
@@ -138,6 +138,7 @@ wordinit list_normals[] = {
 	{ .token = BYE,      .name = "bye"      },
 	{ .token = ARG,      .name = "arg"      },
 	{ .token = EXIT,     .name = "exit"     },
+	{ .token = DIE,      .name = "die"      },
 	{ .token = IDX,      .name = "i"        },
 	{ .token = LEAVE,    .name = "leave"    },
 	{ .token = CONT,     .name = "next"     },
@@ -1410,6 +1411,10 @@ main(int argc, char *argv[], char *env[])
 	// ( -- )
 	CODE(BYE)
 		tos = 0;
+		goto shutdown;
+	NEXT
+
+	CODE(DIE)
 		goto shutdown;
 	NEXT
 

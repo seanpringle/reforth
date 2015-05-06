@@ -50,6 +50,14 @@ normal
 
 : nop ;
 
+10 value \n
+13 value \r
+ 9 value \t
+ 7 value \a
+27 value \e
+ 8 value \b
+32 value \s
+
 : digit? ( c -- f )
 	dup 47 > swap 58 < and ;
 

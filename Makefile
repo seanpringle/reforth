@@ -3,21 +3,21 @@ CFLAGS?=-Wall -Wno-unused -Wno-unused-result -O2 -g
 normal: compress generic shell editor
 
 generic:
-	./fstoc base.fs
 	$(CC) -DLIB_SHELL -DLIB_REGEX -DLIB_FORK -DLIB_MYSQL -o reforth reforth.c $(CFLAGS) -lmysqlclient
 	$(CC) -DDEBUG -DLIB_SHELL -DLIB_REGEX -DLIB_FORK -DLIB_MYSQL -o reforth_debug reforth.c $(CFLAGS) -lmysqlclient
 	objdump -d reforth >reforth.dump
 
 shell:
-	./fstoc base.fs --turnkey shell.fs
+	./cstr turnkey shell.fs > src_turnkey.c
 	$(CC) -DTURNKEY -DLIB_SHELL -DLIB_REGEX -DLIB_FORK -o rf reforth.c $(CFLAGS)
 
 editor:
-	./fstoc base.fs --turnkey editor.fs
+	./cstr turnkey editor.fs > src_turnkey.c
 	$(CC) -DTURNKEY -DLIB_SHELL -DLIB_REGEX -DLIB_FORK -o re reforth.c $(CFLAGS)
 
 compress:
-	$(CC) -o fstoc fstoc.c $(CFLAGS)
+	$(CC) -o cstr cstr.c $(CFLAGS)
+	./cstr base base.fs > src_base.c
 
 compare:
 	gcc   -DLIB_SHELL -DLIB_REGEX -DLIB_FORK -o reforth_gcc reforth.c $(CFLAGS)
@@ -26,7 +26,7 @@ compare:
 	objdump -d reforth_clang >reforth_clang.dump
 
 bench:
-	./fstoc base.fs --turnkey test.fs
+	./cstr turnkey test.fs > src_turnkey.c
 	gcc   -DTURNKEY -DLIB_SHELL -DLIB_REGEX -DLIB_FORK -o test_gcc   reforth.c $(CFLAGS)
 	clang -DTURNKEY -DLIB_SHELL -DLIB_REGEX -DLIB_FORK -o test_clang reforth.c $(CFLAGS)
 	bash -c "time ./test_gcc"

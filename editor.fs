@@ -89,16 +89,8 @@
 -1 value marker
  4 value tabsize
 
-10 value \n
-13 value \r
- 9 value \t
- 7 value \a
-27 value \e
- 8 value \b
-32 value \s
-
-create name   100 allot
-create tmp    100 allot
+create name 100 allot
+create tmp  100 allot
 
 "HOME" getenv "%s/.reclip"
 format string clipboard
@@ -600,7 +592,7 @@ create input 100 allot
 		point "^:\s+[^[:blank:]]+" match?
 		if fg-keyword word fg-define word exit end
 
-		point "^(if|else|end|for|i|begin|while|until|exit|leave|next|value|variable|create|does|record|field|static|;)\s" match?
+		point "^(if|else|end|for|i|begin|while|until|exit|leave|next|value|variable|create|does|record|field|static|to|is|;)\s" match?
 		if fg-keyword word exit end
 
 		point "^[-]?[0-9a-fA-F]+[hb]?\s" match?
