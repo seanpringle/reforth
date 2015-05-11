@@ -27,7 +27,14 @@
 	. "TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE"
 	. "SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE." . ;
 
+\ Execute SOURCE as a system shell command
+: sh ( -- ) 0 sys:source @ null over system type c! ;
+
 : shell ( -- )
+
+	static locals
+		create input 1000 allot
+	end
 
 	: what ( s -- f )
 		" what? %s\n" print
@@ -39,6 +46,7 @@
 			if	" stack underflow!\n" type
 				false leave
 			end
+			my "error code %d" format type
 			false leave
 		end ;
 
@@ -49,16 +57,11 @@
 	'what  sys:on-what  !
 	'error sys:on-error !
 
-	100 allocate at!
-
 	begin
-		0 at c! "> " type
-		at 100 accept cr
-		if
-			at evaluate drop
-		else
-			ok
-		end
+		"> " type 0 input c!
+		input 1000 accept drop
+		accept:done until
+		cr input evaluate drop
 	end
 ;
 

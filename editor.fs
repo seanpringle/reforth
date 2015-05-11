@@ -352,7 +352,7 @@ create input 100 allot
 
 : menu ( options -- item )
 
-	static vars
+	static locals
 		0 value select
 		0 value options
 	end
@@ -509,7 +509,7 @@ create input 100 allot
 
 	: com ( -- a )
 
-		static vars
+		static locals
 			stack words
 		end
 
@@ -780,7 +780,7 @@ create input 100 allot
 
 : display ( -- )
 
-	static vars
+	static locals
 		0 value row
 		0 value col
 		0 value start
@@ -882,7 +882,7 @@ create input 100 allot
 
 : main ( -- )
 
-	static vars
+	static locals
 		create digits 10 allot
 	end
 
@@ -1009,7 +1009,7 @@ create input 100 allot
 		"[5~" edit:escseq? if pgup   exit end
 		"[6~" edit:escseq? if pgdown exit end ;
 
-	static vars
+	static locals
 
 		256 array ckey
 		256 array cekey

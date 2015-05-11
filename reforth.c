@@ -818,8 +818,9 @@ max_xy(int *x, int *y)
 int
 key()
 {
-	char c;
-	read(STDIN_FILENO, &c, 1);
+	char c = 0;
+	int bytes = read(STDIN_FILENO, &c, 1);
+	if (bytes < 1) c = 0;
 	return c;
 }
 
@@ -984,7 +985,8 @@ sys_exec(const char *cmd, const char *data)
 	int in, out;
 	exec_cmd_io(cmd, &in, &out);
 
-	write(in, data, strlen(data));
+	if (data)
+		write(in, data, strlen(data));
 	close(in);
 
 	int len = 0;

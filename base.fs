@@ -158,7 +158,7 @@ normal
 
 : sort ( xt a n -- )
 
-	static vars
+	static locals
 		0 value cmp
 	end
 
@@ -188,10 +188,12 @@ normal
 
 : edit ( -- )
 
-	static vars
+	static locals
 		0 value caret
 		0 value input
 		0 value limit
+		0 value done
+		4 value EOT
 		create escseq 50 allot
 	end
 
@@ -251,7 +253,7 @@ normal
 	: right ( -- )
 		caret 1+ length min to caret ;
 
-	static vars
+	static locals
 		256 array ekeys
 		'right `C ekeys !
 		'left  `D ekeys !
@@ -267,20 +269,22 @@ normal
 	: step ( -- c )
 
 		key my!
+		my EOT = to done
 
 		begin
 
 			my while
-			my 10 = until
+			my \n = until
+			done until
 
-			my 27 =
+			my \e =
 			if
 				escape
 				ekeys @ execute
 				leave
 			end
 
-			my 8 = my 127 = or
+			my \b = my 127 = or
 			if
 				left del drop
 				leave
@@ -300,19 +304,23 @@ normal
 ;
 
 : accept ( buf lim -- len )
+
+	: done edit:done ;
+
 	"\e7" type
 	edit:start
 	begin
 		"\e8" type
 		edit:show
 		edit:step my!
-		my 27 =
+		edit:done until
+		my \e =
 		"" edit:escseq? and
 		if
 			0 edit:input !
 			leave
 		end
-		my 10 = until
+		my \n = until
 	end
 	edit:stop ;
 
