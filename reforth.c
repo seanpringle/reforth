@@ -196,8 +196,6 @@ wordinit list_normals[] = {
 	{ .token = MOVE,     .name = "move"     },
 	{ .token = CMOVE,    .name = "cmove"    },
 	{ .token = NUMBER,   .name = "number"   },
-	{ .token = MACRO,    .name = "macro"    },
-	{ .token = NORMAL,   .name = "normal"   },
 	{ .token = VALUE,    .name = "value"    },
 	{ .token = VARY,     .name = "vary"     },
 	{ .token = CREATE,   .name = "create"   },
@@ -266,6 +264,8 @@ wordinit list_normals[] = {
 };
 
 wordinit list_macros[] = {
+	{ .token = MACRO,    .name = "macro"    },
+	{ .token = NORMAL,   .name = "normal"   },
 	{ .token = COLON,    .name = ":"        },
 	{ .token = SCOLON,   .name = ";"        },
 	{ .token = IF,       .name = "if"       },
@@ -2292,12 +2292,15 @@ main(int argc, char *argv[], char *env[])
 	CODE(COLON)
 		dpush(tos);
 		mode++;
+		dpush(current == &normal);
 		compile(JUMP, &cp);
 		dpush((cell)mark(&cp));
 		xt = label(&hp);
 		call[xt] = &&code_ENTER;
 		body[xt] = cp;
 		tos = xt;
+		// Sub-words default to normals
+		current = &normal;
 	NEXT
 
 	// ( a xt -- )
@@ -2313,9 +2316,14 @@ main(int argc, char *argv[], char *env[])
 			compile(EXIT, &cp);
 		}
 		mode--;
-		head[tos].subs = *current;
-		*current = &head[tos];
 		patch((tok*)dpop, &cp);
+		// Normal sub-words are externaly accessible
+		head[tos].subs = normal;
+		// Macros sub-words are not externally accessible
+		while (macro > normal)
+			macro = macro->prev;
+		current = dpop ? &normal: &macro;
+		*current = &head[tos];
 		tos = dpop;
 		compile_last  = NULL;
 		ncompile_last = NULL;

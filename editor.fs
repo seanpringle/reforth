@@ -33,54 +33,68 @@
 \ I was never a vim power-user but did become attached to some of the
 \ basic command-mode controls. The subset supported here allow me to
 \ move between here and vim without tripping up... much. YMMV.
-\
-\ COMMAND mode uses macro editing controls and word-based navigation.
-\
-\ ------------------------------------------------------------
-\ | i            | Enter INSERT mode at the caret            |
-\ | o            | Insert a blank line and enter INSERT mode |
-\ | /            | Search for text by posix regex            |
-\ | n            | Search for next occurrence                |
-\ | \            | Set replacement text                      |
-\ | r            | Replace current search match              |
-\ | m            | Mark the current line                     |
-\ | y            | Copy from mark to current line            |
-\ | d            | Copy and delete from mark to current line |
-\ | p            | Paste copied text after current line      |
-\ | g            | Go to the marked line                     |
-\ | :            | Access the Forth shell                    |
-\ | Insert       | Enter INSERT mode (same as 'i')           |
-\ ------------------------------------------------------------
-\
-\ Convenient Forth words:
-\
-\ ------------------------------------------------------------
-\ | w            | Save the file                             |
-\ | q            | Exit the editor                           |
-\ | wq           | w q                                       |
-\ | ?            | Wait for a key stroke                     |
-\ ------------------------------------------------------------
-\
-\ INSERT Mode uses "normal" text editing controls and navigation.
-\
-\ ------------------------------------------------------------
-\ | Escape       | Exit INSERT mode                          |
-\ | Insert       | Exit INSERT mode                          |
-\ ------------------------------------------------------------
-\
-\ An example status line:
-\
-\ (0) -- INSERT -- 77,35 s[alpha] r[beta]
-\
-\ ------------------------------------------------------------
-\ | (0)          | Forth Stack (zero items)                  |
-\ | -- INSERT -- | Editor mode                               |
-\ | 77           | Current line                              |
-\ | 35           | Current column                            |
-\ | s[alpha]     | Current search regex is "alpha"           |
-\ | r[beta]      | Current replace string is "beta"          |
-\ | <path>       | Current file                              |
-\ ------------------------------------------------------------
+
+: help ( -- )
+
+	macro
+
+	\ Compile a comment as a string, and type it.
+	: \ ( -- )
+		sys:source @ dup "\n" match drop at! 0 c!+ dup at 1- <>
+		if 1+ end string, 'type word, 'cr word, at sys:source ! ;
+
+	normal
+
+	\ Usage: re [file]
+	\
+	\ COMMAND mode uses macro editing controls and word-based navigation.
+	\
+	\ ------------------------------------------------------------
+	\ | i            | Enter INSERT mode at the caret            |
+	\ | o            | Insert a blank line and enter INSERT mode |
+	\ | /            | Search for text by posix regex            |
+	\ | n            | Search for next occurrence                |
+	\ | \            | Set replacement text                      |
+	\ | r            | Replace current search match              |
+	\ | m            | Mark the current line                     |
+	\ | y            | Copy from mark to current line            |
+	\ | d            | Copy and delete from mark to current line |
+	\ | p            | Paste copied text after current line      |
+	\ | g            | Go to the marked line                     |
+	\ | :            | Access the Forth shell                    |
+	\ | Insert       | Enter INSERT mode (same as 'i')           |
+	\ ------------------------------------------------------------
+	\
+	\ Convenient Forth words:
+	\
+	\ ------------------------------------------------------------
+	\ | w            | Save the file                             |
+	\ | q            | Exit the editor                           |
+	\ | wq           | w q                                       |
+	\ | ?            | Wait for a key stroke                     |
+	\ ------------------------------------------------------------
+	\
+	\ INSERT Mode uses "normal" text editing controls and navigation.
+	\
+	\ ------------------------------------------------------------
+	\ | Escape       | Exit INSERT mode                          |
+	\ | Insert       | Exit INSERT mode                          |
+	\ ------------------------------------------------------------
+	\
+	\ An example status line:
+	\
+	\ (0) -- INSERT -- 77,35 s[alpha] r[beta]
+	\
+	\ ------------------------------------------------------------
+	\ | (0)          | Forth Stack (zero items)                  |
+	\ | -- INSERT -- | Editor mode                               |
+	\ | 77           | Current line                              |
+	\ | 35           | Current column                            |
+	\ | s[alpha]     | Current search regex is "alpha"           |
+	\ | r[beta]      | Current replace string is "beta"          |
+	\ | <path>       | Current file                              |
+	\ ------------------------------------------------------------
+;
 
  0 value file
  0 value caret
@@ -1144,9 +1158,22 @@ create input 100 allot
 : wq w q ;
 : ? key drop ;
 
-colors
-cell allocate to file
-1 arg if 1 arg open detect end
+colors default
+1000 allocate to file
+close "untitled" rename
+
+\ Be friendly
+1 arg "^--help$" match?
+1 arg "^-h$"     match? or
+if
+	help bye
+end
+
+\ Try to open a file
+1 arg
+if
+	1 arg open detect
+end
 
 "HOME" getenv "%s/.rerc" format included
 
