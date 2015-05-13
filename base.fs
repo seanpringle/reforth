@@ -65,7 +65,7 @@ normal
 	dup my! 64 > my 91 < and my 96 > my 123 < and or ;
 
 : space? ( c -- f )
-	dup my! 32 = my 9 = or my 10 = or my 13 = or ;
+	dup my! \s = my \t = or my \n = or my \r = or ;
 
 : hex? ( c -- f )
 	dup my! 64 > my 71 < and my 96 > my 103 < and or my digit? or ;
@@ -77,8 +77,8 @@ normal
 
 : print format type ;
 : . "%d " print ;
-: cr 10 emit ;
-: space 32 emit ;
+: cr \n emit ;
+: space \s emit ;
 
 : .s ( -- )
 	depth dup "(%d) " print

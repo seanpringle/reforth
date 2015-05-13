@@ -874,8 +874,8 @@ regex(char *pattern)
 		re_patterns[i] = strdup(pattern);
 		if (regcomp(re, pattern, REG_EXTENDED) != 0)
 		{
-			fprintf(stderr, "regex compile failure: %s", pattern);
-			exit(1);
+			re = NULL;
+			re_patterns[i] = NULL;
 		}
 	}
 	return re;
@@ -887,7 +887,7 @@ match(char *pattern, char **subject)
 {
 	int r = 0; regmatch_t pmatch;
 	regex_t *re = regex(pattern);
-	if (subject && *subject)
+	if (re && subject && *subject)
 	{
 		r = regexec(re, *subject, 1, &pmatch, 0) == 0 ?-1:0;
 		*subject += r ? pmatch.rm_so: strlen(*subject);
@@ -901,7 +901,7 @@ split(char *pattern, char **subject)
 {
 	int r = 0; regmatch_t pmatch;
 	regex_t *re = regex(pattern);
-	if (*subject)
+	if (re && *subject)
 	{
 		r = regexec(re, *subject, 1, &pmatch, 0) == 0 ?-1:0;
 		if (r)

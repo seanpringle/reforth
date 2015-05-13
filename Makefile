@@ -6,18 +6,22 @@ generic:
 	$(CC) -DLIB_SHELL -DLIB_REGEX -DLIB_FORK -DLIB_MYSQL -o reforth reforth.c $(CFLAGS) -lmysqlclient
 	$(CC) -DDEBUG -DLIB_SHELL -DLIB_REGEX -DLIB_FORK -DLIB_MYSQL -o reforth_debug reforth.c $(CFLAGS) -lmysqlclient
 	objdump -d reforth >reforth.dump
+	strip reforth
 
 shell:
 	./cstr turnkey shell.fs > src_turnkey.c
 	$(CC) -DTURNKEY -DLIB_SHELL -DLIB_REGEX -DLIB_FORK -o rf reforth.c $(CFLAGS)
+	strip rf
 
 editor:
 	./cstr turnkey editor.fs > src_turnkey.c
 	$(CC) -DTURNKEY -DLIB_SHELL -DLIB_REGEX -DLIB_FORK -o re reforth.c $(CFLAGS)
+	strip re
 
 compress:
 	$(CC) -o cstr cstr.c $(CFLAGS)
 	./cstr base base.fs > src_base.c
+	strip cstr
 
 compare:
 	gcc   -DLIB_SHELL -DLIB_REGEX -DLIB_FORK -o reforth_gcc reforth.c $(CFLAGS)
