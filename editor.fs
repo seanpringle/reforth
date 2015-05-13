@@ -619,6 +619,9 @@ create input 100 allot
 		: comment ( -- )
 			begin char while char \n = until shunt end ;
 
+		: comment2 ( -- )
+			begin char while point shunt "^\*/" match? if shunt leave end end ;
+
 		: word ( -- )
 			whites begin char name? while shunt end ;
 
@@ -631,6 +634,9 @@ create input 100 allot
 		my `/ = at c@ `/ = and
 		if fg-comment comment exit end
 
+		my `/ = at c@ `* = and
+		if fg-comment comment2 exit end
+
 		my `" = my `' = or
 		if fg-string string exit end
 
@@ -640,7 +646,7 @@ create input 100 allot
 		point "^(function|class)\s+[^[:blank:]]+" match?
 		if fg-keyword word fg-define word exit end
 
-		point "^(if|else|elsif|for|foreach|while|function|class|return|var|new)[^a-zA-Z0-9_]" match?
+		point "^(if|else|elsif|switch|case|for|foreach|while|function|class|return|var|new|public|private|static|const)[^a-zA-Z0-9_]" match?
 		if fg-keyword word exit end
 
 		point "^[-]{0,1}(0x|[0-9]){1}[0-9a-fA-F]*" match?

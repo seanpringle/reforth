@@ -1019,7 +1019,7 @@ lib_mysql_connect(char *dsn)
 	char *spassword = strchr(susername, ':'); if (spassword) spassword++;
 
 	// allow blank :password
-	if (!spassword) {
+	if (!spassword || spassword > shostname) {
 		spassword = shostname;
 		lpassword = 0;
 	} else {
@@ -1043,6 +1043,7 @@ lib_mysql_connect(char *dsn)
 	char *username  = malloc(lusername+1);
 	char *password  = malloc(lpassword+1);
 	char *hostname  = malloc(lhostname+1);
+
 	strncpy(username, susername, lusername);
 	username[lusername] = '\0';
 	strncpy(password, spassword, lpassword);
@@ -1050,7 +1051,7 @@ lib_mysql_connect(char *dsn)
 	strncpy(hostname, shostname, lhostname);
 	hostname[lhostname] = '\0';
 
-	unsigned int port = 0;
+	unsigned int port = 3306;
 	if (lport)
 	{
 		char bport[6];
@@ -1058,6 +1059,8 @@ lib_mysql_connect(char *dsn)
 		bport[lport] = '\0';
 		port = atoi(bport);
 	}
+
+	fprintf(stderr, "host: %s, user: %s, pass: %s, database: %s, port: %d", hostname, username, password, dbname, port);
 
 	MYSQL *mysql = mysql_init(NULL);
 
