@@ -978,7 +978,7 @@ create input 100 allot
 		marker 1+ 0> if marker to caret exit end 0 to caret ;
 
 	: tagpick ( -- )
-		undo! complete menu dup inserts count for right end ;
+		undo! complete menu dup inserts count for right end imode ;
 
 	: go-up ( -- )
 		times1 for up end ;
