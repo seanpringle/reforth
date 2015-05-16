@@ -49,20 +49,31 @@
 	\ ------------------------------------------------------------
 	\ | i            | Enter INSERT mode at the caret            |
 	\ | o            | Insert a blank line and enter INSERT mode |
-	\ | /            | Search for text by posix regex            |
-	\ | n            | Search for next occurrence                |
-	\ | \            | Set replacement text                      |
-	\ | r            | Replace current search match              |
 	\ | m            | Mark the current line                     |
+	\ | c            | Add a virtual cursor                      |
+	\ | s            | Remove virtual cursors                    |
 	\ | y            | Copy from mark to current line            |
+	\ | /            | Search for text by posix regex            |
+	\ | \            | Set replacement text                      |
+	\ | n            | Search for next occurrence                |
+	\ | r            | Replace current search match              |
 	\ | d            | Copy and delete from mark to current line |
 	\ | p            | Paste copied text after current line      |
 	\ | g            | Go to the marked line                     |
+	\ | u            | Undo last change                          |
 	\ | :            | Access the Forth shell                    |
 	\ | Insert       | Enter INSERT mode (same as 'i')           |
 	\ ------------------------------------------------------------
 	\
-	\ Convenient Forth words:
+	\ COMMAND mode keys can be modified with prefixes:
+	\
+	\ ------------------------------------------------------------
+	\ | 10g          | Go to line 10                             |
+	\ | $g           | Go to last line (end of file)             |
+	\ | 5d           | Delete 5 lines after the cursor           |
+	\ ------------------------------------------------------------
+	\
+	\ Convenient Forth shorthand words:
 	\
 	\ ------------------------------------------------------------
 	\ | w            | Save the file                             |
@@ -80,15 +91,16 @@
 	\
 	\ An example status line:
 	\
-	\ (0) -- INSERT -- 77,35 s[alpha] r[beta]
+	\ (0) -- INSERT -- 77,35 s[alpha] r[beta] c[20] editor.fs
 	\
 	\ ------------------------------------------------------------
 	\ | (0)          | Forth Stack (zero items)                  |
 	\ | -- INSERT -- | Editor mode                               |
 	\ | 77           | Current line                              |
 	\ | 35           | Current column                            |
-	\ | s[alpha]     | Current search regex is "alpha"           |
+	\ | n[alpha]     | Current search regex is "alpha"           |
 	\ | r[beta]      | Current replace string is "beta"          |
+	\ | c[20]        | Current command mode key modifier         |
 	\ | <path>       | Current file                              |
 	\ ------------------------------------------------------------
 ;
@@ -102,6 +114,7 @@
 
 create name 100 allot
 create tmp  100 allot
+create cmd  100 allot
 
 "HOME" getenv "%s/.reclip"
 format string clipboard
@@ -109,8 +122,20 @@ format string clipboard
 stack undos
 stack redos
 
+: bounds? ( n -- n' )
+	dup 0 < swap size >= or ;
+
+: bounds ( n -- n' )
+	size min 0 max ;
+
+: ncopy ( a n -- b )
+	dup my! 1+ allocate dup at! my cmove 0 at my + c! at ;
+
+: fcopy ( -- a )
+	file size ncopy ;
+
 : copy ( a -- b )
-	dup count 1+ allocate tuck place ;
+	dup count ncopy ;
 
 : match? ( s p -- f )
 	match nip ;
@@ -131,16 +156,16 @@ stack redos
 	max-xy drop ;
 
 : undo! ( -- )
-	undos.top file 0 compare if file copy undos.push end ;
+	undos.top file 0 compare if caret undos.push fcopy undos.push end ;
 
 : redo! ( -- )
-	redos.top file 0 compare if file copy redos.push end ;
+	redos.top file 0 compare if caret redos.push fcopy redos.push end ;
 
 : expand ( -- )
 	size 1+ to size file size 1+ resize to file ;
 
 : shrink ( -- )
-	size 1- to size caret size min 0 max to caret ;
+	size 1- to size caret bounds to caret ;
 
 : point ( -- a )
 	file caret + ;
@@ -189,6 +214,9 @@ stack redos
 
 : pgdown ( -- )
 	rows 2/ for down end ;
+
+: goto ( l -- )
+	0 to caret for away right end ;
 
 : inserts ( text -- )
 	at! caret begin c@+ dup while insert right end drop to caret ;
@@ -239,10 +267,10 @@ stack redos
 	caret swap close inserts size min to caret ;
 
 : undo ( -- )
-	redo! undos.pop dup if revert else drop end ;
+	redo! undos.pop dup if revert undos.pop to caret else drop end ;
 
 : redo ( -- )
-	undo! redos.pop dup if revert else drop end ;
+	undo! redos.pop dup if revert redos.pop to caret else drop end ;
 
 create srch 100 allot
 create repl 100 allot
@@ -252,14 +280,14 @@ create repl 100 allot
 
 : search ( -- )
 
-	: goto ( a -- )
-		file - size min 0 max to caret ;
+	: forward ( a -- )
+		file - bounds to caret ;
 
 	srch stringlit tmp place
 
 	right
-	point tmp match if goto exit end drop
-	file  tmp match if goto exit end drop
+	point tmp match if forward exit end drop
+	file  tmp match if forward exit end drop
 	left ;
 
 : replace ( -- )
@@ -818,7 +846,7 @@ create input 100 allot
 		col 1+ to col ;
 
 	: spaces ( n -- )
-		for 32 emit col+ end ;
+		for \s emit col+ end ;
 
 	: bg ( -- )
 		sline row + dup cline = swap mline = or if bg-active else bg-normal end ;
@@ -890,6 +918,7 @@ create input 100 allot
 		cur-col cline " %d,%d" print
 		srch c@ if srch " n[%s]" print end
 		srch c@ if repl " r[%s]" print end
+		cmd  c@ if cmd  " c[%s]" print end
 		name basename " %s" print erase ;
 
 	: cleanup ( -- )
@@ -899,21 +928,17 @@ create input 100 allot
 
 : main ( -- )
 
-	static locals
-		create digits 10 allot
-	end
-
-	: digit! ( c -- )
-		digits dup count + at! c!+ 0 c!+ ;
+	: cmd! ( c -- )
+		my! cmd my `$ <> if dup count + end at! my c!+ 0 c!+ ;
 
 	: times ( -- n )
-		digits number drop ;
+		cmd c@ `$ = if lines exit end cmd number drop ;
 
 	: times1 ( -- n )
 		times 1 max ;
 
 	: reset ( -- )
-		0 digits ! ;
+		0 cmd ! ;
 
 	: imode ( -- )
 		reset undo! 1 to mode unmark ;
@@ -948,12 +973,9 @@ create input 100 allot
 	: newline ( -- )
 		away enter caret times1 1- for enter end to caret imode ;
 
-	: goto ( -- )
-		digits c@ if 0 to caret times for down end exit end
+	: gline ( -- )
+		cmd c@ if times goto exit end
 		marker 1+ 0> if marker to caret exit end 0 to caret ;
-
-	: gend ( -- )
-		size to caret home ;
 
 	: tagpick ( -- )
 		undo! complete menu dup inserts count for right end ;
@@ -991,7 +1013,7 @@ create input 100 allot
 
 	: replaces ( -- )
 		undo!
-		digits c@
+		cmd c@
 		if
 			times1 for
 				i if search end replace
@@ -1033,6 +1055,7 @@ create input 100 allot
 		256 array ikey
 		256 array iekey
 
+		'reset    \b ckey !
 		'mark     `m ckey !
 		'mark     `M ckey !
 		'yank     `y ckey !
@@ -1053,24 +1076,13 @@ create input 100 allot
 		'imode1   `A ckey !
 		'newline  `o ckey !
 		'newline  `O ckey !
-		'goto     `g ckey !
-		'goto     `G ckey !
-		'gend     `e ckey !
-		'gend     `E ckey !
+		'gline    `g ckey !
+		'gline    `G ckey !
 
 		'command  `: ckey !
 		'tagpick  \t ckey !
 		'search!  `/ ckey !
 		'replace! `\ ckey !
-
-		'go-up    `k ckey !
-		'go-up    `K ckey !
-		'go-down  `j ckey !
-		'go-down  `J ckey !
-		'go-right `l ckey !
-		'go-right `L ckey !
-		'go-left  `h ckey !
-		'go-left  `H ckey !
 
 		'go-up    `A cekey !
 		'go-down  `B cekey !
@@ -1127,8 +1139,8 @@ create input 100 allot
 		end
 
 		begin
-			my digit? while
-			my digit! key my!
+			my digit? my `$ = or while
+			my cmd! display key my!
 		end
 
 		my \e =

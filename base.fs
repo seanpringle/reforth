@@ -176,6 +176,9 @@ normal
 	: depth ( a -- n )
 		size @ ;
 
+	: get ( p a -- n )
+		at! 0 max at size @ 1- min cells at data @ + @ ;
+
 	create here fields allot cell allocate swap data ! does ;
 
 : sort ( xt a n -- )

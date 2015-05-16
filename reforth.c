@@ -37,6 +37,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include <string.h>
 #include <unistd.h>
 #include <poll.h>
+#include <time.h>
 
 #ifdef LIB_REGEX
 #include <regex.h>
@@ -99,7 +100,7 @@ enum {
 	BRANCH, JUMP, LOOP, ELOOP, MACROS, NORMALS, LATEST, ADDER, HEAD_XT,
 	XT_HEAD, XT_NAME, XT_CODE, XT_BODY, XT_LIST, XT_LINK, PARSE, SPARSE, FIND,
 	FINDPAIR, COMPILE, NCOMPILE, SCOMPILE, MODE, LABEL, REDOES, ONOK, ONWHAT,
-	ONERROR, SOURCE, ERROR, USEC, STATIC,
+	ONERROR, SOURCE, ERROR, USEC, STATIC, RANDOM,
 
 	OPT_DUP_SAT, OPT_DUP_SMY, OPT_DUP_WHILE, OPT_DUP_UNTIL, OPT_DUP_BRANCH,
 	OPT_IDX_ADD, OPT_LIT_NUM_ADD,
@@ -230,6 +231,7 @@ wordinit list_normals[] = {
 	{ .token = USEC,     .name = "usec"     },
 	{ .token = FIELD,    .name = "field"    },
 	{ .token = EVALUATE, .name = "evaluate" },
+	{ .token = RANDOM,   .name = "random"   },
 
 #ifdef DEBUG
 	{ .token = SLOW,     .name = "slow"     },
@@ -1236,6 +1238,8 @@ main(int argc, char *argv[], char *env[])
 	cell index, limit, src, dst;
 	word *w, *hp;
 	void *voidp;
+
+	srand(time(0));
 
 #define RSP_MY  -1
 #define RSP_AT  -2
@@ -2510,6 +2514,11 @@ main(int argc, char *argv[], char *env[])
 		tos = dpop;
 	NEXT
 
+	// ( n -- r )
+	CODE(RANDOM)
+		tos = rand() % tos;
+	NEXT
+
 #ifdef LIB_SHELL
 
 	// ( x y -- )
@@ -2806,6 +2815,12 @@ main(int argc, char *argv[], char *env[])
 
 #ifdef DEBUG
 	next:
+		if (dsp < ds+2)
+		{
+			fprintf(stderr, "stack underflow");
+			fprintf(stderr, "\n%s", head[*ip].name);
+			exit(EXIT_FAILURE);
+		}
 		if (single)
 		{
 			// single step debugger
