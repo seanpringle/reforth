@@ -1109,8 +1109,8 @@ create input 100 allot
 
 	end
 
-	sys:unbuffered
 	sys:pseudo-terminal
+	sys:unbuffered
 
 	begin
 		reset display

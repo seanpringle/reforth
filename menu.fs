@@ -116,11 +116,10 @@ create pattern 100 allot
 	readlines
 	sortlines
 
-	sys:unbuffered
 	sys:pseudo-terminal
+	sys:unbuffered
 
 	wrap-off
-	page
 
 	'up `A edit:ekeys !
 	'dn `B edit:ekeys !
@@ -148,8 +147,9 @@ create pattern 100 allot
 	edit:stop drop
 
 	wrap-on
-	tty-off
-	pty-off
+
+	sys:buffered
+	sys:default-stdio
 
 	aborted if aborted die end
 

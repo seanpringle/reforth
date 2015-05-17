@@ -87,6 +87,8 @@
 		accept:done until
 		cr input evaluate drop
 	end
+
+	sys:buffered
 ;
 
 shell

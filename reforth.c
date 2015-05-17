@@ -2560,9 +2560,9 @@ main(int argc, char *argv[], char *env[])
 	CODE(PTY_ON)
 		if (!pty_state)
 		{
-			write(fileno(stdout), "\e[?1049h", 8);
 			stdin_current = fopen("/dev/tty", "r");
 			stdout_current = fopen("/dev/tty", "w");
+			write(fileno(stdout_current), "\e[?1049h", 8);
 			pty_state = 1;
 		}
 	NEXT
@@ -2578,7 +2578,7 @@ main(int argc, char *argv[], char *env[])
 	CODE(PTY_OFF)
 		if (pty_state)
 		{
-			write(fileno(stdout), "\e[?1049l", 8);
+			write(fileno(stdout_current), "\e[?1049l", 8);
 			fclose(stdin_current);
 			fclose(stdout_current);
 			stdin_current = stdin;
@@ -2898,7 +2898,7 @@ main(int argc, char *argv[], char *env[])
 		}
 		if (pty_state)
 		{
-			write(fileno(stdout), "\e[?1049l", 8);
+			write(fileno(stdout_current), "\e[?1049l", 8);
 		}
 
 	free(fsrc);
