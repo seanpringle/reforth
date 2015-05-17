@@ -1109,6 +1109,9 @@ create input 100 allot
 
 	end
 
+	sys:unbuffered
+	sys:pseudo-terminal
+
 	begin
 		reset display
 		key my!
@@ -1157,11 +1160,9 @@ create input 100 allot
 		end
 
 		my ckey @ execute
-	end
+	end ;
 
-;
-
-: q! cr "\ec" type bye ;
+: q! bye ;
 : q q! ;
 : w write ;
 : wq w q ;
@@ -1178,12 +1179,19 @@ if
 	help bye
 end
 
+"HOME" getenv "%s/.rerc" format included
+
 \ Try to open a file
 1 arg
 if
 	1 arg open detect
 end
 
-"HOME" getenv "%s/.rerc" format included
+\ Accept initial stdin as content
+begin
+	key? while
+	key dup my! while
+	my insert right
+end
 
 main

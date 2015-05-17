@@ -110,7 +110,7 @@ enum {
 #endif
 
 #ifdef LIB_SHELL
-	AT_XY, MAX_XY,
+	AT_XY, MAX_XY, UNBUFFERED, BUFFERED, PTY_ON, PTY_OFF,
 #endif
 
 #ifdef LIB_REGEX
@@ -320,6 +320,11 @@ wordinit list_hiddens[] = {
 	{ .token = ONWHAT,   .name = "on-what"  },
 	{ .token = ONERROR,  .name = "on-error" },
 	{ .token = SOURCE,   .name = "source"   },
+
+	{ .token = UNBUFFERED, .name = "unbuffered" },
+	{ .token = BUFFERED,   .name = "buffered"   },
+	{ .token = PTY_ON,     .name = "pseudo-terminal" },
+	{ .token = PTY_OFF,    .name = "default-stdio"   },
 
 	{ .token = OPT_DUP_SMY,     .name = "dup_my!"   },
 	{ .token = OPT_DUP_WHILE,   .name = "dup_while" },
@@ -792,6 +797,9 @@ number(char *conv, cell *res)
 	return 0;
 }
 
+FILE *stdin_current;
+FILE *stdout_current;
+
 #ifdef LIB_SHELL
 
 void
@@ -803,14 +811,14 @@ at_xy(int x, int y)
 
 	char tmp[32];
 	sprintf(tmp, "\e[%d;%dH", y, x);
-	write(fileno(stdout), tmp, strlen(tmp));
+	write(fileno(stdout_current), tmp, strlen(tmp));
 }
 
 void
 max_xy(int *x, int *y)
 {
 	struct winsize ws;
-	ioctl(0, TIOCGWINSZ, &ws);
+	ioctl(fileno(stdin_current), TIOCGWINSZ, &ws);
 	*x = ws.ws_col-1;
 	*y = ws.ws_row-1;
 }
@@ -820,20 +828,28 @@ max_xy(int *x, int *y)
 int
 key()
 {
+#ifdef LIB_SHELL
 	char c = 0;
-	int bytes = read(STDIN_FILENO, &c, 1);
+	int bytes = read(fileno(stdin_current), &c, 1);
 	if (bytes < 1) c = 0;
 	return c;
+#else
+	return 0;
+#endif
 }
 
 int
 keyq()
 {
+#ifdef LIB_SHELL
 	struct pollfd fds;
-	fds.fd = STDIN_FILENO;
+	fds.fd = fileno(stdin_current);
 	fds.events = POLLIN;
 	fds.revents = 0;
 	return poll(&fds, 1, 0) > 0 ? -1:0;
+#else
+	return 0;
+#endif
 }
 
 #ifdef LIB_REGEX
@@ -1259,18 +1275,11 @@ main(int argc, char *argv[], char *env[])
 #endif
 
 #ifdef LIB_SHELL
+	int input_state = 0;
+	int pty_state = 0;
 	struct termios old_tio, new_tio;
-
-	if (isatty(STDIN_FILENO))
-	{
-		tcgetattr(STDIN_FILENO,&old_tio);
-
-		new_tio = old_tio;
-		new_tio.c_lflag &= (~ICANON & ~ECHO);
-		new_tio.c_cc[VTIME] = 0;
-		new_tio.c_cc[VMIN] = 1;
-		tcsetattr(STDIN_FILENO, TCSANOW, &new_tio);
-	}
+	stdin_current = stdin;
+	stdout_current = stdout;
 #endif
 
 #ifdef LIB_MYSQL
@@ -2129,7 +2138,7 @@ main(int argc, char *argv[], char *env[])
 	CODE(EMIT)
 		c = tos;
 		tos = dpop;
-		write(fileno(stdout), &c, 1);
+		write(fileno(stdout_current), &c, 1);
 	NEXT
 
 	// ( -- c )
@@ -2498,7 +2507,7 @@ main(int argc, char *argv[], char *env[])
 	// ( a -- )
 	CODE(TYPE)
 		if (tos)
-			write(fileno(stdout), (char*)tos, strlen((char*)tos));
+			write(fileno(stdout_current), (char*)tos, strlen((char*)tos));
 		tos = dpop;
 	NEXT
 
@@ -2533,6 +2542,49 @@ main(int argc, char *argv[], char *env[])
 		max_xy(&i, &j);
 		dpush(i);
 		tos = j;
+	NEXT
+
+	CODE(UNBUFFERED)
+		if (!input_state)
+		{
+			tcgetattr(fileno(stdin_current),&old_tio);
+			new_tio = old_tio;
+			new_tio.c_lflag &= (~ICANON & ~ECHO);
+			new_tio.c_cc[VTIME] = 0;
+			new_tio.c_cc[VMIN] = 1;
+			tcsetattr(fileno(stdin_current), TCSANOW, &new_tio);
+			input_state = 1;
+		}
+	NEXT
+
+	CODE(PTY_ON)
+		if (!pty_state)
+		{
+			write(fileno(stdout), "\e[?1049h", 8);
+			stdin_current = fopen("/dev/tty", "r");
+			stdout_current = fopen("/dev/tty", "w");
+			pty_state = 1;
+		}
+	NEXT
+
+	CODE(BUFFERED)
+		if (input_state)
+		{
+			tcsetattr(fileno(stdin_current), TCSANOW, &old_tio);
+			input_state = 0;
+		}
+	NEXT
+
+	CODE(PTY_OFF)
+		if (pty_state)
+		{
+			write(fileno(stdout), "\e[?1049l", 8);
+			fclose(stdin_current);
+			fclose(stdout_current);
+			stdin_current = stdin;
+			stdout_current = stdout;
+			pty_state = 0;
+		}
 	NEXT
 
 #endif
@@ -2840,10 +2892,14 @@ main(int argc, char *argv[], char *env[])
 
 	shutdown:
 
-#ifdef LIB_SHELL
-	if (isatty(STDIN_FILENO))
-		tcsetattr(STDIN_FILENO, TCSANOW, &old_tio);
-#endif
+		if (input_state)
+		{
+			tcsetattr(fileno(stdin_current), TCSANOW, &old_tio);
+		}
+		if (pty_state)
+		{
+			write(fileno(stdout), "\e[?1049l", 8);
+		}
 
 	free(fsrc);
 	return tos;

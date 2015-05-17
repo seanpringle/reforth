@@ -294,7 +294,7 @@ normal
 	: step ( -- c )
 
 		key my!
-		my EOT = to done
+		my EOT = my 0= or to done
 
 		begin
 
@@ -350,4 +350,5 @@ normal
 		my \n = until
 	end
 	edit:stop ;
+
 

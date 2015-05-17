@@ -79,6 +79,8 @@
 	'what  sys:on-what  !
 	'error sys:on-error !
 
+	sys:unbuffered
+
 	begin
 		"> " type 0 input c!
 		input 1000 accept drop

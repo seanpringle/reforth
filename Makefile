@@ -1,6 +1,6 @@
 CFLAGS?=-Wall -Wno-unused -Wno-unused-result -O2 -g
 
-normal: compress generic shell editor
+normal: compress generic shell editor tools
 
 generic:
 	$(CC) -DLIB_SHELL -DLIB_REGEX -DLIB_FORK -DLIB_MYSQL -o reforth reforth.c $(CFLAGS) -lmysqlclient
@@ -17,6 +17,11 @@ editor:
 	./cstr turnkey editor.fs > src_turnkey.c
 	$(CC) -DTURNKEY -DLIB_SHELL -DLIB_REGEX -DLIB_FORK -o re reforth.c $(CFLAGS)
 	strip re
+
+tools:
+	./cstr turnkey menu.fs > src_turnkey.c
+	$(CC) -DTURNKEY -DLIB_SHELL -DLIB_REGEX -DLIB_FORK -o rp reforth.c $(CFLAGS)
+	strip rp
 
 compress:
 	$(CC) -o cstr cstr.c $(CFLAGS)
