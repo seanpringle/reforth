@@ -1384,24 +1384,10 @@ main(int argc, char *argv[], char *env[])
 #else
 
 	// Assume the last command line argument is our Forth source file
-	char *run = NULL;
 
-	for (i = 1; i < argc; i++)
+	if (argc > 1)
 	{
-		if (!run && strncmp(argv[i], "--", 2))
-		{
-			run = argv[i];
-		}
-		else
-		if (!strcmp(argv[i], "--dump-envs"))
-		{
-			for (j = 0; env[j]; j++)
-				fprintf(stderr, "%s\n", env[j]);
-		}
-	}
-	if (run)
-	{
-		char *pad = slurp(run);
+		char *pad = slurp(argv[argc-1]);
 		if (pad)
 		{
 			fsrc = realloc(fsrc, strlen(fsrc) + 2 + strlen(pad));
@@ -1409,11 +1395,6 @@ main(int argc, char *argv[], char *env[])
 			strcat(fsrc, pad);
 		}
 		free(pad);
-	}
-	else
-	{
-		fsrc = realloc(fsrc, strlen(fsrc) + 50);
-		strcat(fsrc, "\nshell");
 	}
 
 #endif

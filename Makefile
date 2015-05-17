@@ -19,9 +19,9 @@ editor:
 	strip re
 
 tools:
-	./cstr turnkey menu.fs > src_turnkey.c
-	$(CC) -DTURNKEY -DLIB_SHELL -DLIB_REGEX -DLIB_FORK -o rp reforth.c $(CFLAGS)
-	strip rp
+	./cstr turnkey gmenu.fs > src_turnkey.c
+	$(CC) -DTURNKEY -DLIB_SHELL -DLIB_REGEX -DLIB_FORK -o gmenu reforth.c $(CFLAGS)
+	strip gmenu
 
 compress:
 	$(CC) -o cstr cstr.c $(CFLAGS)
