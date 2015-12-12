@@ -1,9 +1,10 @@
 CFLAGS?=-Wall -Wno-unused -Wno-unused-result -O2 -g
 TURNKEY={ echo 'const char src_turnkey[] = {'; cat $(1) | xxd -i; echo ',0};'; } >src_turnkey.c
 
-normal: generic shell editor tools
+normal: generic shell editor tools cgi
 
 generic:
+	{ echo 'const char src_base[] = {'; cat base.fs | xxd -i; echo ',0};'; } >src_base.c
 	$(CC) -DLIB_SHELL -DLIB_REGEX -DLIB_FORK -DLIB_MYSQL -o reforth reforth.c $(CFLAGS) -lmysqlclient
 	$(CC) -DDEBUG -DLIB_SHELL -DLIB_REGEX -DLIB_FORK -DLIB_MYSQL -o reforth_debug reforth.c $(CFLAGS) -lmysqlclient
 	objdump -d reforth >reforth.dump
@@ -23,6 +24,11 @@ tools:
 	$(call TURNKEY,gmenu.fs)
 	$(CC) -DTURNKEY -DLIB_SHELL -DLIB_REGEX -DLIB_FORK -o gmenu reforth.c $(CFLAGS)
 	strip gmenu
+
+cgi:
+	$(call TURNKEY,web.fs)
+	$(CC) -DTURNKEY -DLIB_SHELL -DLIB_REGEX -DLIB_FORK -o web reforth.c $(CFLAGS)
+	strip web
 
 compare:
 	gcc   -DLIB_SHELL -DLIB_REGEX -DLIB_FORK -o reforth_gcc reforth.c $(CFLAGS)

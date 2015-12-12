@@ -145,6 +145,10 @@ normal
 	create dup , for 0 , end does
 		at! @+ 1- min 0 max cells at + ;
 
+: buffer ( n -- )
+	create dup , for 0 c, end does
+		at! @+ 1- min 0 max at + ;
+
 : stack ( -- )
 
 	record fields

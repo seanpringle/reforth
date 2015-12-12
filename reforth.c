@@ -100,7 +100,8 @@ enum {
 	BRANCH, JUMP, LOOP, ELOOP, MACROS, NORMALS, LATEST, ADDER, HEAD_XT,
 	XT_HEAD, XT_NAME, XT_CODE, XT_BODY, XT_LIST, XT_LINK, PARSE, SPARSE, FIND,
 	FINDPAIR, COMPILE, NCOMPILE, SCOMPILE, MODE, LABEL, REDOES, ONOK, ONWHAT,
-	ONERROR, SOURCE, ERROR, USEC, STATIC, RANDOM,
+	ONERROR, ONEVAL, SOURCE, ERROR, USEC, STATIC, RANDOM, TIME, DATE,
+	FILL, CFILL,
 
 	OPT_DUP_SAT, OPT_DUP_SMY, OPT_DUP_WHILE, OPT_DUP_UNTIL, OPT_DUP_BRANCH,
 	OPT_IDX_ADD, OPT_LIT_NUM_ADD,
@@ -232,6 +233,10 @@ wordinit list_normals[] = {
 	{ .token = FIELD,    .name = "field"    },
 	{ .token = EVALUATE, .name = "evaluate" },
 	{ .token = RANDOM,   .name = "random"   },
+	{ .token = TIME,     .name = "time"     },
+	{ .token = DATE,     .name = "date"     },
+	{ .token = FILL,     .name = "fill"     },
+	{ .token = CFILL,    .name = "cfill"    },
 
 #ifdef DEBUG
 	{ .token = SLOW,     .name = "slow"     },
@@ -318,6 +323,7 @@ wordinit list_hiddens[] = {
 	{ .token = REDOES,   .name = "redoes"   },
 	{ .token = ONOK,     .name = "on-ok"    },
 	{ .token = ONWHAT,   .name = "on-what"  },
+	{ .token = ONEVAL,   .name = "on-eval"  },
 	{ .token = ONERROR,  .name = "on-error" },
 	{ .token = SOURCE,   .name = "source"   },
 
@@ -335,7 +341,7 @@ wordinit list_hiddens[] = {
 };
 
 // Some Forth global variables
-cell source, mode, on_ok, on_error, on_what;
+cell source, mode, on_ok, on_error, on_what, on_eval;
 word *macro, *normal, **current;
 
 // Code space
@@ -674,6 +680,27 @@ format(char *in, cell **_dsp)
 	*_dsp = dsp;
 	return buf;
 }
+
+char*
+date_format(const char *pattern, cell stamp)
+{
+	time_t t = (time_t)stamp;
+
+	struct tm *info;
+	info = localtime(&t);
+
+	char *buf = malloc(FORMAT_BUF);
+
+	int idx = format_i++;
+	if (format_i == FORMAT_BUFS) format_i = 0;
+
+	strftime(buf, FORMAT_BUF, pattern, info);
+
+	free(format_bufs[idx]);
+	format_bufs[idx] = buf;
+	return buf;
+}
+
 
 //#define same_name(a,b) ((a)[0] == (b)[0] && !strcmp((a), (b)))
 #define same_name(a,b) (((int16_t*)(a))[0] == ((int16_t*)(b))[0] && !strcmp((a), (b)))
@@ -1250,7 +1277,7 @@ main(int argc, char *argv[], char *env[])
 	int i, j;
 	tok *tokp, exec[2], iexec[2], *cp, xt1, xt2;
 	cell *cellp, tmp, tos, num;
-	char *charp, *s1, *s2, c;
+	char *charp, *wordp = NULL, *s1, *s2, c;
 	cell index, limit, src, dst;
 	word *w, *hp;
 	void *voidp;
@@ -2158,6 +2185,12 @@ main(int argc, char *argv[], char *env[])
 	NEXT
 
 	// ( -- a )
+	CODE(ONEVAL)
+		dpush(tos);
+		tos = (cell)&on_eval;
+	NEXT
+
+	// ( -- a )
 	CODE(ONERROR)
 		dpush(tos);
 		tos = (cell)&on_error;
@@ -2509,6 +2542,37 @@ main(int argc, char *argv[], char *env[])
 		tos = rand() % tos;
 	NEXT
 
+	// ( -- stamp )
+	CODE(TIME)
+		dpush(tos);
+		tos = time(0);
+	NEXT
+
+	// ( stamp pattern -- buffer )
+	CODE(DATE)
+		tos = (cell)date_format((char*)tos, dpop);
+	NEXT
+
+	// ( a n c -- )
+	CODE(FILL)
+		num = dpop;
+		charp = (char*)dpop;
+		for (i = 0; i < num; i++)
+		{
+			*((cell*)charp) = tos;
+			charp += sizeof(cell);
+		}
+		tos = dpop;
+	NEXT
+
+	// ( a n c -- )
+	CODE(CFILL)
+		num = dpop;
+		charp = (char*)dpop;
+		memset(charp, tos, num);
+		tos = dpop;
+	NEXT
+
 #ifdef LIB_SHELL
 
 	// ( x y -- )
@@ -2700,34 +2764,71 @@ main(int argc, char *argv[], char *env[])
 				}
 			}
 
-			if (!((charp = parse()) && *charp))
+			if (on_eval)
+			{
+				wordp = (char*)source;
+				while (*wordp && *wordp < 33) wordp++;
+				source = (cell)wordp;
+
+				IEXECUTE(on_eval, eval7);
+				if (tos)
+				{
+					tos = dpop;
+					continue;
+				}
+				tos = dpop;
+			}
+
+			if (!((wordp = parse()) && *wordp))
 				break;
 
-			// double-quoted string literal
-			if (*charp == '"')
+			// double-quoted string literal, typed
+			if (*wordp == '.' && wordp[1] == '"')
 			{
-				source -= strlen(charp);
-				charp = sparse();
+				source -= strlen(wordp)-1;
+				wordp = sparse();
 				if (mode)
 				{
 					compile(LIT_STR, &cp);
-					scompile(charp, &cp);
+					scompile(wordp, &cp);
+					compile(FORMAT, &cp);
+					compile(TYPE, &cp);
 				}
 				else
 				{
 					dpush(tos);
-					tos = (cell)charp;
+					tos = (cell)wordp;
+					IEXECUTE(FORMAT, eval8);
+					IEXECUTE(TYPE, eval9);
+				}
+				continue;
+			}
+
+			// double-quoted string literal
+			if (*wordp == '"')
+			{
+				source -= strlen(wordp);
+				wordp = sparse();
+				if (mode)
+				{
+					compile(LIT_STR, &cp);
+					scompile(wordp, &cp);
+				}
+				else
+				{
+					dpush(tos);
+					tos = (cell)wordp;
 				}
 				continue;
 			}
 			// immediate word
-			if ((xt = find(macro, charp)))
+			if ((xt = find(macro, wordp)))
 			{
 				IEXECUTE(xt, eval1)
 				continue;
 			}
 			// normal word
-			if ((xt = find(normal, charp)))
+			if ((xt = find(normal, wordp)))
 			{
 				if (mode)
 				{
@@ -2738,7 +2839,7 @@ main(int argc, char *argv[], char *env[])
 				continue;
 			}
 			// literal
-			if (number(charp, &tmp))
+			if (number(wordp, &tmp))
 			{
 				if (mode)
 				{
@@ -2751,9 +2852,9 @@ main(int argc, char *argv[], char *env[])
 				continue;
 			}
 			// find a word
-			if (*charp == '\'')
+			if (*wordp == '\'')
 			{
-				if ((xt = find(macro, charp+1)))
+				if ((xt = find(macro, wordp+1)))
 				{
 					if (mode)
 					{
@@ -2767,7 +2868,7 @@ main(int argc, char *argv[], char *env[])
 					}
 					continue;
 				}
-				if ((xt = find(normal, charp+1)))
+				if ((xt = find(normal, wordp+1)))
 				{
 					if (mode)
 					{
@@ -2784,23 +2885,23 @@ main(int argc, char *argv[], char *env[])
 			}
 			else
 			// ascii char literal
-			if (*charp == '`')
+			if (*wordp == '`')
 			{
 				if (mode)
 				{
 					compile(LIT_NUM, &cp);
-					ncompile(charp[1], &cp);
+					ncompile(wordp[1], &cp);
 				}
 				else
 				{
 					dpush(tos);
-					tos = charp[1];
+					tos = wordp[1];
 				}
 				continue;
 			}
 			else
 			// object.method notation
-			if ((xt1 = findpair(normal, charp, &xt2)))
+			if ((xt1 = findpair(normal, wordp, &xt2)))
 			{
 				if (mode)
 				{
@@ -2816,7 +2917,7 @@ main(int argc, char *argv[], char *env[])
 			if (on_what)
 			{
 				dpush(tos);
-				tos = (cell)charp;
+				tos = (cell)wordp;
 				IEXECUTE(on_what, eval5)
 				if (tos)
 				{
