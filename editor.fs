@@ -816,11 +816,46 @@ create input 100 allot
 	'cln is do-clean
 	'syn is do-syntax ;
 
+: markdown ( -- )
+
+	: syn ( -- )
+
+		: shunt ( -- )
+			char put right ;
+
+		: whites ( -- )
+			begin char while char space? while shunt end ;
+
+		: heading ( -- )
+			begin char while char \n = until shunt end ;
+
+		whites char 0= if exit end
+		point at! c@+ my!
+
+		my `# =
+		if fg-keyword heading exit end
+
+		fg-normal
+
+		shunt ;
+
+	: gap ( c -- f )
+		white? ;
+
+	: cln ( -- )
+		default:rtrim default:rtabs ;
+
+	default
+	'gap is gap?
+	'cln is clean
+	'syn is syntax ;
+
 : detect ( -- )
-	name "\.fs$"    match? if reforth exit end
-	name "\.php$"   match? if php     exit end
-	name "\.c$"     match? if c99     exit end
-	name "\.html?$" match? if html    exit end
+	name "\.fs$"    match? if reforth  exit end
+	name "\.php$"   match? if php      exit end
+	name "\.c$"     match? if c99      exit end
+	name "\.html?$" match? if html     exit end
+	name "\.md$"    match? if markdown exit end
 	default ;
 
 : display ( -- )
