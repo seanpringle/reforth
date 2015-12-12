@@ -8,7 +8,6 @@
 * Excessive stack manipulation is common, and is just confusing and distracting.
 * ANS-Forth local variables are an overly-complex solution.
 * Forth control structures could be more flexible.
-* ANS-Forth 200x drags on awaiting consensus. Won't work. Forth needs a [BDFL](http://en.wikipedia.org/wiki/Benevolent_Dictator_for_Life).
 
 *Some high-level gripes when using Forth inside other popular envrionments:*
 
