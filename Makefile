@@ -1,6 +1,7 @@
 CFLAGS?=-Wall -Wno-unused -Wno-unused-result -O2 -g
+TURNKEY={ echo 'const char src_turnkey[] = {'; cat $(1) | xxd -i; echo ',0};'; } >src_turnkey.c
 
-normal: compress generic shell editor tools
+normal: generic shell editor tools
 
 generic:
 	$(CC) -DLIB_SHELL -DLIB_REGEX -DLIB_FORK -DLIB_MYSQL -o reforth reforth.c $(CFLAGS) -lmysqlclient
@@ -9,24 +10,19 @@ generic:
 	strip reforth
 
 shell:
-	./cstr turnkey shell.fs > src_turnkey.c
+	$(call TURNKEY,shell.fs)
 	$(CC) -DTURNKEY -DLIB_SHELL -DLIB_REGEX -DLIB_FORK -o rf reforth.c $(CFLAGS)
 	strip rf
 
 editor:
-	./cstr turnkey editor.fs > src_turnkey.c
+	$(call TURNKEY,editor.fs)
 	$(CC) -DTURNKEY -DLIB_SHELL -DLIB_REGEX -DLIB_FORK -o re reforth.c $(CFLAGS)
 	strip re
 
 tools:
-	./cstr turnkey gmenu.fs > src_turnkey.c
+	$(call TURNKEY,gmenu.fs)
 	$(CC) -DTURNKEY -DLIB_SHELL -DLIB_REGEX -DLIB_FORK -o gmenu reforth.c $(CFLAGS)
 	strip gmenu
-
-compress:
-	$(CC) -o cstr cstr.c $(CFLAGS)
-	./cstr base base.fs > src_base.c
-	strip cstr
 
 compare:
 	gcc   -DLIB_SHELL -DLIB_REGEX -DLIB_FORK -o reforth_gcc reforth.c $(CFLAGS)
@@ -35,7 +31,7 @@ compare:
 	objdump -d reforth_clang >reforth_clang.dump
 
 bench:
-	./cstr turnkey test.fs > src_turnkey.c
+	$(call TURNKEY,test.fs)
 	gcc   -DTURNKEY -DLIB_SHELL -DLIB_REGEX -DLIB_FORK -o test_gcc   reforth.c $(CFLAGS)
 	clang -DTURNKEY -DLIB_SHELL -DLIB_REGEX -DLIB_FORK -o test_clang reforth.c $(CFLAGS)
 	bash -c "time ./test_gcc"
