@@ -316,6 +316,7 @@ create repl 100 allot
 "\e[33;22m" blat fg-keyword
 "\e[39;22m" blat fg-coreword
 "\e[39;22m" blat fg-variable
+"\e[39;22m" blat fg-constant
 "\e[31;22m" blat fg-define
 "\e[39;22m" blat fg-status
 "\e[49;22m" blat bg-normal
@@ -370,12 +371,14 @@ create repl 100 allot
 			sys:xt-body @ @ ! ;
 
 		D8h D8h D8h fg-256 'fg-normal   re
-		82h AAh 8Ch fg-256 'fg-comment  re
-		C8h 91h 91h fg-256 'fg-string   re
+		66h 66h 66h fg-256 'fg-comment  re
+\		82h AAh 8Ch fg-256 'fg-comment  re
+		82h AAh 8Ch fg-256 'fg-string   re
 		8Ch C8h C8h fg-256 'fg-number   re
 		F0h DCh AFh fg-256 'fg-keyword  re
-		D8h D8h D8h fg-256 'fg-coreword re
+		FFh FFh FFh fg-256 'fg-coreword re
 		C0h BEh D0h fg-256 'fg-variable re
+		C8h 91h 91h fg-256 'fg-constant re
 		F0h F0h 8Ch fg-256 'fg-define   re
 		FFh FFh FFh fg-256 'fg-status   re
 		30h 30h 30h bg-256 'bg-normal   re
@@ -850,12 +853,85 @@ create input 100 allot
 	'cln is clean
 	'syn is syntax ;
 
+: puppet ( -- )
+
+	: syn ( -- )
+
+		: shunt ( -- )
+			char put right ;
+
+		: name? ( c -- f )
+			my! my alpha? my digit? my `_ = or or ;
+
+		: whites ( -- )
+			begin char while char space? while shunt end ;
+
+		: comment ( -- )
+			begin char while char \n = until shunt end ;
+
+		: comment2 ( -- )
+			begin char while point shunt "^\*/" match? if shunt leave end end ;
+
+		: word ( -- )
+			whites begin char name? while shunt end ;
+
+		: string ( delim -- )
+			char shunt begin char my! my while shunt my over = until my `\ = if shunt end end drop ;
+
+		whites char 0= if exit end
+		point at! c@+ my!
+
+		my `# =
+		if fg-comment comment exit end
+
+		my `/ = at c@ `* = and
+		if fg-comment comment2 exit end
+
+		my `" = my `' = or
+		if fg-string string exit end
+
+		my `$ =
+		if fg-variable shunt word exit end
+
+		point "^[-]{0,1}(0x|[0-9]){1}[0-9a-fA-F]*" match?
+		if fg-number shunt word exit end
+
+		point "^([a-zA-Z0-9_]+)[[:space:]]*=>" match?
+		if fg-variable word exit end
+
+		point "^(node|file|exec|include|class|define|require)[[:space:]]" match?
+		if fg-keyword word exit end
+
+		point "^(template|file|hiera)[[:space:]]*[(]" match?
+		if fg-coreword word exit end
+
+		point "^(exists|present|latest|file|directory|root|undef|true|false)[[:space:],{(]+" match?
+		if fg-constant word exit end
+
+		point "^[A-Z][a-zA-Z0-9_]+[\\[]" match?
+		if fg-define word exit end
+
+		fg-normal
+
+		my name?
+		if word exit end
+
+		shunt ;
+
+	: gap ( c -- f )
+		my! my white? my `, = or my `. = or my `( = or my `) = or ;
+
+	default
+	'gap is gap?
+	'syn is syntax ;
+
 : detect ( -- )
 	name "\.fs$"    match? if reforth  exit end
 	name "\.php$"   match? if php      exit end
 	name "\.c$"     match? if c99      exit end
 	name "\.html?$" match? if html     exit end
 	name "\.md$"    match? if markdown exit end
+	name "\.pp$"    match? if puppet   exit end
 	default ;
 
 : display ( -- )
