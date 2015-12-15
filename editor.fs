@@ -237,13 +237,13 @@ stack redos
 	clipboard blurt drop ;
 
 : yank ( -- )
-	caret here at! at range for char c!+ right end 0 c!+ clip to caret ;
+	caret here dup at! range for char c!+ right end 0 c!+ clip to caret ;
 
 : paste ( -- )
 	away right clipboard slurp dup inserts free ;
 
 : delete ( -- )
-	here at! at range for remove c!+ end 0 c!+ clip ;
+	here dup at! range for remove c!+ end 0 c!+ clip ;
 
 : rename ( name -- )
 	name place name basename "\e]0;%s\a" print ;
@@ -252,7 +252,7 @@ stack redos
 	0 to caret unmark 0 to size 0 file c! ;
 
 : read ( -- )
-	name slurp at! at if at inserts end ;
+	name slurp dup at! if at inserts end ;
 
 : open ( name -- )
 	close rename read ;
@@ -417,19 +417,19 @@ create input 100 allot
 		my! input my cmove 0 input my + c! ;
 
 	: hit! ( -- )
-		options hit+ select for eol hit+ end at! at eol at - my! my if at my input! end ;
+		options hit+ select for eol hit+ end dup at! eol at - dup my! if at my input! end ;
 
 	: sel! ( -- )
 		options select for eol sol end dup eol over - input! ;
 
 	: hits ( -- n )
-		0 options begin hit+ at! at c@ while 1+ at eol sol end ;
+		0 options begin hit+ dup at! c@ while 1+ at eol sol end ;
 
 	: items ( -- n )
-		0 options begin at! at c@ while 1+ at eol sol end ;
+		0 options begin dup at! c@ while 1+ at eol sol end ;
 
 	: item. ( a i -- )
-		select = if bg-active end space at! at eol at - for c@+ emit end space bg-status ;
+		select = if bg-active end space dup at! eol at - for c@+ emit end space bg-status ;
 
 	: draw ( -- n )
 		space space options begin hit+ dup c@ while dup i item. eol sol end drop ;
@@ -526,7 +526,7 @@ create input 100 allot
 		begin
 			char while away 0
 			begin left char white? while 1+ end
-			right my! my for remove drop end
+			right dup my! for remove drop end
 			caret over < if my - end right
 		end
 		to caret ;
@@ -618,7 +618,7 @@ create input 100 allot
 			whites begin char while char space? until shunt end ;
 
 		: string ( -- )
-			shunt begin char my! my while shunt my `" = until my `\ = if shunt end end ;
+			shunt begin char dup my! while shunt my `" = until my `\ = if shunt end end ;
 
 		whites char 0= if exit end
 
@@ -653,7 +653,7 @@ create input 100 allot
 			char put right ;
 
 		: name? ( c -- f )
-			my! my alpha? my digit? my `_ = or or ;
+			dup my! alpha? my digit? my `_ = or or ;
 
 		: whites ( -- )
 			begin char while char space? while shunt end ;
@@ -668,7 +668,7 @@ create input 100 allot
 			whites begin char name? while shunt end ;
 
 		: string ( delim -- )
-			char shunt begin char my! my while shunt my over = until my `\ = if shunt end end drop ;
+			char shunt begin char dup my! while shunt my over = until my `\ = if shunt end end drop ;
 
 		whites char 0= if exit end
 		point at! c@+ my!
@@ -702,7 +702,7 @@ create input 100 allot
 		shunt ;
 
 	: gap ( c -- f )
-		my! my white? my `, = or my `. = or my `( = or my `) = or ;
+		dup my! white? my `, = or my `. = or my `( = or my `) = or ;
 
 	: cln ( -- )
 		default:rtrim default:rtabs ;
@@ -720,7 +720,7 @@ create input 100 allot
 			char put right ;
 
 		: name? ( c -- f )
-			my! my alpha? my digit? my `_ = or or ;
+			dup my! alpha? my digit? my `_ = or or ;
 
 		: whites ( -- )
 			begin char while char space? while shunt end ;
@@ -735,7 +735,7 @@ create input 100 allot
 			whites begin char name? while shunt end ;
 
 		: string ( delim -- )
-			char shunt begin char my! my while shunt my over = until my `\ = if shunt end end drop ;
+			char shunt begin char dup my! while shunt my over = until my `\ = if shunt end end drop ;
 
 		whites char 0= if exit end
 		point at! c@+ my!
@@ -766,7 +766,7 @@ create input 100 allot
 		shunt ;
 
 	: gap ( c -- f )
-		my! my white? my `, = or my `. = or my `( = or my `) = or ;
+		dup my! white? my `, = or my `. = or my `( = or my `) = or ;
 
 	default
 	'gap is gap?
@@ -786,7 +786,7 @@ create input 100 allot
 			whites begin char alpha? char digit? or  while shunt end ;
 
 		: string ( delim -- )
-			char shunt begin char my! my while shunt my over = until my `\ = if shunt end end drop ;
+			char shunt begin char dup my! while shunt my over = until my `\ = if shunt end end drop ;
 
 		whites char my!
 		my 0= if exit end
@@ -809,7 +809,7 @@ create input 100 allot
 		fg-normal shunt ;
 
 	: gap ( c -- f )
-		my! my white? my `> = or my `< = or my `= = or ;
+		dup my! white? my `> = or my `< = or my `= = or ;
 
 	: cln ( -- )
 		default:rtrim name "corvus" match? 0= if default:rtabs end ;
@@ -861,7 +861,7 @@ create input 100 allot
 			char put right ;
 
 		: name? ( c -- f )
-			my! my alpha? my digit? my `_ = or or ;
+			dup my! alpha? my digit? my `_ = or or ;
 
 		: whites ( -- )
 			begin char while char space? while shunt end ;
@@ -876,7 +876,7 @@ create input 100 allot
 			whites begin char name? while shunt end ;
 
 		: string ( delim -- )
-			char shunt begin char my! my while shunt my over = until my `\ = if shunt end end drop ;
+			char shunt begin char dup my! while shunt my over = until my `\ = if shunt end end drop ;
 
 		whites char 0= if exit end
 		point at! c@+ my!
@@ -919,7 +919,7 @@ create input 100 allot
 		shunt ;
 
 	: gap ( c -- f )
-		my! my white? my `, = or my `. = or my `( = or my `) = or ;
+		dup my! white? my `, = or my `. = or my `( = or my `) = or ;
 
 	: cln ( -- )
 		default:rtrim default:rtabs ;
@@ -937,7 +937,7 @@ create input 100 allot
 			char put right ;
 
 		: name? ( c -- f )
-			my! my alpha? my digit? my `_ = or or ;
+			dup my! alpha? my digit? my `_ = or or ;
 
 		: whites ( -- )
 			begin char while char space? while shunt end ;
@@ -952,7 +952,7 @@ create input 100 allot
 			whites begin char name? while shunt end ;
 
 		: string ( delim -- )
-			char shunt begin char my! my while shunt my over = until my `\ = if shunt end end drop ;
+			char shunt begin char dup my! while shunt my over = until my `\ = if shunt end end drop ;
 
 		whites char 0= if exit end
 		point at! c@+ my!
@@ -980,7 +980,7 @@ create input 100 allot
 		shunt ;
 
 	: gap ( c -- f )
-		my! my white? my `, = or my `. = or my `( = or my `) = or ;
+		dup my! white? my `, = or my `. = or my `( = or my `) = or ;
 
 	: cln ( -- )
 		default:rtrim default:rtabs ;
