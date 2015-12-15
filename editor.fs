@@ -899,7 +899,7 @@ create input 100 allot
 		point "^([a-zA-Z0-9_]+)[[:space:]]*=>" match?
 		if fg-variable word exit end
 
-		point "^(node|file|exec|include|class|define|require)[[:space:]]" match?
+		point "^(node|file|exec|include|class|define|require|if|unless|else)[[:space:]]" match?
 		if fg-keyword word exit end
 
 		point "^(template|file|hiera)[[:space:]]*[(]" match?
@@ -921,8 +921,73 @@ create input 100 allot
 	: gap ( c -- f )
 		my! my white? my `, = or my `. = or my `( = or my `) = or ;
 
+	: cln ( -- )
+		default:rtrim default:rtabs ;
+
 	default
 	'gap is gap?
+	'cln is clean
+	'syn is syntax ;
+
+: yaml ( -- )
+
+	: syn ( -- )
+
+		: shunt ( -- )
+			char put right ;
+
+		: name? ( c -- f )
+			my! my alpha? my digit? my `_ = or or ;
+
+		: whites ( -- )
+			begin char while char space? while shunt end ;
+
+		: comment ( -- )
+			begin char while char \n = until shunt end ;
+
+		: comment2 ( -- )
+			begin char while point shunt "^\*/" match? if shunt leave end end ;
+
+		: word ( -- )
+			whites begin char name? while shunt end ;
+
+		: string ( delim -- )
+			char shunt begin char my! my while shunt my over = until my `\ = if shunt end end drop ;
+
+		whites char 0= if exit end
+		point at! c@+ my!
+
+		my `# =
+		if fg-comment comment exit end
+
+		my `/ = at c@ `* = and
+		if fg-comment comment2 exit end
+
+		my `" = my `' = or
+		if fg-string string exit end
+
+		point "^[-]{0,1}(0x|[0-9]){1}[0-9a-fA-F]*" match?
+		if fg-number shunt word exit end
+
+		point "^[a-zA-Z0-9_]+[[:space:]]*:" match?
+		if fg-variable word exit end
+
+		fg-normal
+
+		my name?
+		if word exit end
+
+		shunt ;
+
+	: gap ( c -- f )
+		my! my white? my `, = or my `. = or my `( = or my `) = or ;
+
+	: cln ( -- )
+		default:rtrim default:rtabs ;
+
+	default
+	'gap is gap?
+	'cln is clean
 	'syn is syntax ;
 
 : detect ( -- )
@@ -932,6 +997,7 @@ create input 100 allot
 	name "\.html?$" match? if html     exit end
 	name "\.md$"    match? if markdown exit end
 	name "\.pp$"    match? if puppet   exit end
+	name "\.yaml$"  match? if yaml     exit end
 	default ;
 
 : display ( -- )
