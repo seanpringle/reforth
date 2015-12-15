@@ -559,7 +559,7 @@ create input 100 allot
 			at! words.depth
 			for
 				i cells words.base + @ at at count compare 0=
-				if exit end
+				exit?
 			end
 			at copy words.push ;
 
@@ -620,7 +620,7 @@ create input 100 allot
 		: string ( -- )
 			shunt begin char dup my! while shunt my `" = until my `\ = if shunt end end ;
 
-		whites char 0= if exit end
+		whites char 0= exit?
 
 		`( cword?
 		if fg-comment comment exit end
@@ -634,7 +634,7 @@ create input 100 allot
 		point "^:\s+[^[:blank:]]+" match?
 		if fg-keyword word fg-define word exit end
 
-		point "^(if|else|end|for|i|begin|while|until|exit|leave|next|value|variable|create|does|record|field|static|to|is|;)\s" match?
+		point "^(if|else|end|for|i|begin|while|until|exit[?]?|leave[?]?|next[?]?|value|variable|create|does|record|field|static|to|is|;)\s" match?
 		if fg-keyword word exit end
 
 		point "^[-]?[0-9a-fA-F]+[hb]?\s" match?
@@ -670,7 +670,7 @@ create input 100 allot
 		: string ( delim -- )
 			char shunt begin char dup my! while shunt my over = until my `\ = if shunt end end drop ;
 
-		whites char 0= if exit end
+		whites char 0= exit?
 		point at! c@+ my!
 
 		my `/ = at c@ `/ = and
@@ -737,7 +737,7 @@ create input 100 allot
 		: string ( delim -- )
 			char shunt begin char dup my! while shunt my over = until my `\ = if shunt end end drop ;
 
-		whites char 0= if exit end
+		whites char 0= exit?
 		point at! c@+ my!
 
 		my `/ = at c@ `/ = and
@@ -789,7 +789,7 @@ create input 100 allot
 			char shunt begin char dup my! while shunt my over = until my `\ = if shunt end end drop ;
 
 		whites char my!
-		my 0= if exit end
+		my 0= exit?
 
 		my `" = my `' = or
 		if fg-string string exit end
@@ -832,7 +832,7 @@ create input 100 allot
 		: heading ( -- )
 			begin char while char \n = until shunt end ;
 
-		whites char 0= if exit end
+		whites char 0= exit?
 		point at! c@+ my!
 
 		my `# =
@@ -878,7 +878,7 @@ create input 100 allot
 		: string ( delim -- )
 			char shunt begin char dup my! while shunt my over = until my `\ = if shunt end end drop ;
 
-		whites char 0= if exit end
+		whites char 0= exit?
 		point at! c@+ my!
 
 		my `# =
@@ -954,7 +954,7 @@ create input 100 allot
 		: string ( delim -- )
 			char shunt begin char dup my! while shunt my over = until my `\ = if shunt end end drop ;
 
-		whites char 0= if exit end
+		whites char 0= exit?
 		point at! c@+ my!
 
 		my `# =
