@@ -82,10 +82,14 @@ typedef struct _word {
 
 #define STACK 1024
 #define MAXTOKEN 4096
+#define CODESPACE 1024*1024
+
+#define ensure(x) for ( ; !(x) ; exit(EXIT_FAILURE) )
+#define errorf(...) do { fprintf(stderr, __VA_ARGS__); fputc('\n', stderr); } while(0)
 
 enum {
 	// codewords
-	BYE=1, EXIT, ARG, TAIL, GOTO, DIE,
+	BYE=1, EXIT, ARG, TAIL, GOTO, DIE, EXITQ, CONTQ, LEAVEQ,
 
 	IDX, LEAVE, CONT, WHILE, UNTIL, DUP, DROP, OVER, SWAP, PUSH, POP,
 	TOP, NIP, ROT, TUCK, SMY, MY, SAT, AT, ATSP, ATFP, ATCSP, ATCFP, FETCH,
@@ -140,10 +144,13 @@ wordinit list_normals[] = {
 	{ .token = BYE,      .name = "bye"      },
 	{ .token = ARG,      .name = "arg"      },
 	{ .token = EXIT,     .name = "exit"     },
+	{ .token = EXITQ,    .name = "exit?"    },
 	{ .token = DIE,      .name = "die"      },
 	{ .token = IDX,      .name = "i"        },
 	{ .token = LEAVE,    .name = "leave"    },
+	{ .token = LEAVEQ,   .name = "leave?"   },
 	{ .token = CONT,     .name = "next"     },
+	{ .token = CONTQ,    .name = "next?"    },
 	{ .token = WHILE,    .name = "while"    },
 	{ .token = UNTIL,    .name = "until"    },
 	{ .token = DUP,      .name = "dup"      },
@@ -345,7 +352,7 @@ cell source, mode, on_ok, on_error, on_what, on_eval;
 word *macro, *normal, **current;
 
 // Code space
-tok code[1024*1024];
+tok code[CODESPACE];
 
 // Head space
 word head[MAXTOKEN];
@@ -405,6 +412,8 @@ void
 compile(tok n, tok **p)
 {
 	tok *cp = *p;
+	ensure(cp + sizeof(tok) < code + CODESPACE)
+		errorf("dictionary overflow");
 	if (compile_last == cp-1)
 	{
 		switch (*compile_last)
@@ -490,6 +499,8 @@ void
 ncompile(cell n, tok **p)
 {
 	tok *cp = *p;
+	ensure(cp + sizeof(cell) < code + CODESPACE)
+		errorf("dictionary overflow");
 	ncompile_last = cp;
 	*((cell*)cp) = n;
 	cp = (tok*)(((char*)cp) + sizeof(cell));
@@ -502,6 +513,8 @@ void
 scompile(char *s, tok **p)
 {
 	tok *cp = *p;
+	ensure(cp + strlen(s) + 1 < code + CODESPACE)
+		errorf("dictionary overflow");
 	// reserve byte for count
 	tok *tokp = cp++;
 	char *d = (char*)cp;
@@ -1463,6 +1476,17 @@ main(int argc, char *argv[], char *env[])
 		rsp -= RSP_NEST;
 	NEXT
 
+	// ( flag -- )
+	CODE(EXITQ)
+		tmp = tos; tos = dpop;
+		if (tmp)
+		{
+			ip = (tok*)rsp[RSP_IP];
+			lsp = (cell*)rsp[RSP_LSP];
+			rsp -= RSP_NEST;
+		}
+	NEXT
+
 	// ( xt -- )
 	CODE(EXECUTE)
 		xt = tos;
@@ -1745,9 +1769,30 @@ main(int argc, char *argv[], char *env[])
 	NEXT
 
 	// ( -- )
+	CODE(LEAVEQ)
+		tmp = tos; tos = dpop;
+		if (tmp)
+		{
+			ip = (tok*)(lsp[LSP_IP]);
+			lsp -= LSP_NEST;
+			ip_jmp;
+		}
+	NEXT
+
+	// ( -- )
 	CODE(CONT)
 		ip = (tok*)(lsp[LSP_IP]);
 		ip_jmp; ip--;
+	NEXT
+
+	// ( flag -- )
+	CODE(CONTQ)
+		tmp = tos; tos = dpop;
+		if (tmp)
+		{
+			ip = (tok*)(lsp[LSP_IP]);
+			ip_jmp; ip--;
+		}
 	NEXT
 
 	// ( f -- )
@@ -2264,6 +2309,8 @@ main(int argc, char *argv[], char *env[])
 
 	// ( n -- )
 	CODE(ALLOT)
+		ensure(cp + tos < code + CODESPACE)
+			errorf("dictionary overflow");
 		memset(cp, 0, tos);
 		cp = (tok*)(((char*)cp) + tos);
 		tos = dpop;
@@ -2271,12 +2318,16 @@ main(int argc, char *argv[], char *env[])
 
 	// ( n -- )
 	CODE(COMMA)
+		ensure(cp + sizeof(cell) < code + CODESPACE)
+			errorf("dictionary overflow");
 		ncompile(tos, &cp);
 		tos = dpop;
 	NEXT
 
 	// ( c -- )
 	CODE(CCOMMA)
+		ensure(cp + 1 < code + CODESPACE)
+			errorf("dictionary overflow");
 		*((char*)cp) = tos;
 		cp = (tok*)((char*)cp + sizeof(char));
 		tos = dpop;
