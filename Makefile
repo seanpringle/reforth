@@ -5,8 +5,8 @@ normal: generic shell editor tools cgi
 
 generic:
 	{ echo 'const char src_base[] = {'; cat base.fs | xxd -i; echo ',0};'; } >src_base.c
-	$(CC) -DLIB_SHELL -DLIB_REGEX -DLIB_FORK -DLIB_MYSQL -o reforth reforth.c $(CFLAGS) -lmysqlclient
-	$(CC) -DDEBUG -DLIB_SHELL -DLIB_REGEX -DLIB_FORK -DLIB_MYSQL -o reforth_debug reforth.c $(CFLAGS) -lmysqlclient
+	$(CC) -DLIB_SHELL -DLIB_REGEX -DLIB_FORK -o reforth reforth.c $(CFLAGS)
+	$(CC) -DDEBUG -DLIB_SHELL -DLIB_REGEX -DLIB_FORK -o reforth_debug reforth.c $(CFLAGS)
 	objdump -d reforth >reforth.dump
 	strip reforth
 

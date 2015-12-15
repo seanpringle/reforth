@@ -52,10 +52,6 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include <sys/ioctl.h>
 #endif
 
-#ifdef LIB_MYSQL
-#include <mysql/mysql.h>
-#endif
-
 /*
 #ifdef LIB_SERVE
 #include <sys/socket.h>
@@ -124,11 +120,6 @@ enum {
 
 #ifdef LIB_FORK
 	FORK, SELF, SYSTEM,
-#endif
-
-#ifdef LIB_MYSQL
-	MYSQL_CONNECT, MYSQL_CLOSE, MYSQL_QUERY, MYSQL_FETCH, MYSQL_ESCAPE,
-	MYSQL_FIELDS, MYSQL_FREE,
 #endif
 
 	NOP, LASTTOKEN
@@ -266,15 +257,6 @@ wordinit list_normals[] = {
 	{ .token = SYSTEM,   .name = "system"   },
 #endif
 
-#ifdef LIB_MYSQL
-	{ .token = MYSQL_CONNECT,   .name = "mysql_connect"   },
-	{ .token = MYSQL_CLOSE,     .name = "mysql_close"     },
-	{ .token = MYSQL_QUERY,     .name = "mysql_query"     },
-	{ .token = MYSQL_FETCH,     .name = "mysql_fetch"     },
-	{ .token = MYSQL_FIELDS,    .name = "mysql_fields"    },
-	{ .token = MYSQL_ESCAPE,    .name = "mysql_escape"    },
-	{ .token = MYSQL_FREE,      .name = "mysql_free"      },
-#endif
 };
 
 wordinit list_macros[] = {
@@ -1063,186 +1045,6 @@ sys_exec(const char *cmd, const char *data)
 
 #endif
 
-#ifdef LIB_MYSQL
-
-MYSQL*
-// ( dsn -- handle )
-lib_mysql_connect(char *dsn)
-{
-	int lusername, lpassword, lhostname, lport;
-
-	char *mysqldesc = dsn+8;
-	char *susername = mysqldesc;
-	char *shostname = strchr(susername, '@'); if (shostname) shostname++;
-	char *spassword = strchr(susername, ':'); if (spassword) spassword++;
-
-	// allow blank :password
-	if (!spassword || spassword > shostname) {
-		spassword = shostname;
-		lpassword = 0;
-	} else {
-		lpassword = shostname - spassword - 1;
-	}
-
-	char *sport  = strchr(shostname, ':'); if (sport) sport++;
-	char *dbname = strchr(shostname, '/'); if (dbname) dbname++;
-
-	// allow blank :port
-	if (!sport) {
-		sport = dbname;
-		lport = 0;
-	} else {
-		lport = dbname - sport - 1;
-	}
-
-	lusername = spassword - susername - 1;
-	lhostname = sport     - shostname - 1;
-
-	char *username  = malloc(lusername+1);
-	char *password  = malloc(lpassword+1);
-	char *hostname  = malloc(lhostname+1);
-
-	strncpy(username, susername, lusername);
-	username[lusername] = '\0';
-	strncpy(password, spassword, lpassword);
-	password[lpassword] = '\0';
-	strncpy(hostname, shostname, lhostname);
-	hostname[lhostname] = '\0';
-
-	unsigned int port = 3306;
-	if (lport)
-	{
-		char bport[6];
-		strncpy(bport, sport, lport);
-		bport[lport] = '\0';
-		port = atoi(bport);
-	}
-
-	fprintf(stderr, "host: %s, user: %s, pass: %s, database: %s, port: %d", hostname, username, password, dbname, port);
-
-	MYSQL *mysql = mysql_init(NULL);
-
-	if (!mysql_real_connect(mysql, hostname, username, password, dbname, port, NULL, 0))
-	{
-		fprintf(stderr, "mysql_real_connect: %s", mysql_error(mysql));
-		mysql = NULL;
-	}
-	else
-	if (mysql_set_character_set(mysql, "utf8") != 0)
-	{
-		fprintf(stderr, "mysql_set_character_set: %s", mysql_error(mysql));
-		mysql_close(mysql);
-		mysql = NULL;
-	}
-
-	free(username);
-	free(password);
-	free(hostname);
-
-	return mysql;
-}
-
-MYSQL_RES*
-// ( sql -- selected|affected rs )
-lib_mysql_query(MYSQL *mysql, char *sql, unsigned long long *rows)
-{
-	*rows = 0;
-
-	if (mysql_real_query(mysql, sql, strlen(sql)) != 0)
-	{
-		fprintf(stderr, "mysql_real_query: %s", mysql_error(mysql));
-		return 0;
-	}
-
-	MYSQL_RES *res = mysql_store_result(mysql);
-
-	if (!res)
-	{
-		// could be statement without results, eg INSERT
-		if (mysql_field_count(mysql) != 0)
-		{
-			fprintf(stderr, "mysql_store_result: %s", mysql_error(mysql));
-			return 0;
-		}
-		*rows = mysql_affected_rows(mysql);
-		return NULL;
-	}
-	else
-	{
-		*rows = mysql_num_rows(res);
-		return res;
-	}
-}
-
-unsigned char*
-// ( rs -- addr )
-lib_mysql_fetch(MYSQL_RES *res, unsigned long long index)
-{
-	if (index > mysql_num_rows(res))
-	{
-		fprintf(stderr, "invalid mysql result index: %lld", index);
-		return NULL;
-	}
-
-	mysql_data_seek(res, index);
-	MYSQL_ROW row = mysql_fetch_row(res);
-
-	unsigned int cols = mysql_num_fields(res);
-	unsigned long *lengths = mysql_fetch_lengths(res);
-	MYSQL_FIELD *fields = mysql_fetch_fields(res);
-
-	int len = 0;
-	unsigned char *data = calloc(1024, 1);
-
-	int i;
-	for (i = 0; i < cols; i++)
-	{
-		data = realloc(data, len + lengths[i] + sizeof(cell) + 2);
-
-		unsigned char *flags = data + len;
-		data[len++] = 0;
-
-		*((cell*)(data + len)) = lengths[i];
-		len += sizeof(cell);
-
-		if (!row[i])
-			*flags |= 1; // null
-		else
-		{
-			memmove(data + len, row[i], lengths[i]);
-			len += lengths[i];
-		}
-
-		if (fields[i].type == MYSQL_TYPE_BLOB)
-			*flags |= 2;
-
-		data[len++] = 0;
-	}
-	return data;
-}
-
-char*
-lib_mysql_fields(MYSQL_RES *res, unsigned int *cols)
-{
-	*cols = mysql_num_fields(res);
-	MYSQL_FIELD *fields = mysql_fetch_fields(res);
-
-	int len = 0;
-	char *data = calloc(1024, 1);
-
-	int i;
-	for (i = 0; i < *cols; i++)
-	{
-		int flen = strlen(fields[i].name);
-		data = realloc(data, len + flen+1);
-		strcpy(data + len, fields[i].name);
-		len += flen+1;
-	}
-	return data;
-}
-
-#endif
-
 tok init[] = { EVALUATE, BYE };
 
 #include "src_base.c"
@@ -1320,10 +1122,6 @@ main(int argc, char *argv[], char *env[])
 	struct termios old_tio, new_tio;
 	stdin_current = stdin;
 	stdout_current = stdout;
-#endif
-
-#ifdef LIB_MYSQL
-	unsigned long long rows;
 #endif
 
 	// Initialize the dictionary headers
@@ -2733,55 +2531,6 @@ main(int argc, char *argv[], char *env[])
 	CODE(SYSTEM)
 		tmp = dpop;
 		tos = (cell)sys_exec((char*)tos, tmp ? (char*)tmp: "");
-	NEXT
-
-#endif
-
-#ifdef LIB_MYSQL
-
-	// ( dsn -- handle )
-	CODE(MYSQL_CONNECT)
-		tos = (cell)lib_mysql_connect((char*)tos);
-	NEXT
-
-	// ( handle -- )
-	CODE(MYSQL_CLOSE)
-		if (tos)
-			mysql_close((MYSQL*)tos);
-		tos = dpop;
-	NEXT
-
-	// ( sql handle -- handle selected|affected )
-	CODE(MYSQL_QUERY)
-		tmp = (cell)lib_mysql_query((MYSQL*)tos, (char*)dpop, &rows);
-		dpush((cell)tmp);
-		tos = rows;
-	NEXT
-
-	// ( rhandle -- addr )
-	CODE(MYSQL_FETCH)
-		tos = (cell)lib_mysql_fetch((MYSQL_RES*)dpop, (unsigned long long)tos);
-	NEXT
-
-	// ( rhandle -- addr num )
-	CODE(MYSQL_FIELDS)
-		dpush((cell)lib_mysql_fields((MYSQL_RES*)tos, (unsigned int*)&rows));
-		tos = rows;
-	NEXT
-
-	// ( src dst len handle -- len' )
-	CODE(MYSQL_ESCAPE)
-		s1 = (char*)dpop;
-		s2 = (char*)dpop;
-		tmp = dpop;
-		tos = mysql_real_escape_string((MYSQL*)tos, s1, s2, tmp);
-	NEXT
-
-	// ( rhandle -- )
-	CODE(MYSQL_FREE)
-		if (tos)
-			mysql_free_result((MYSQL_RES*)tos);
-		tos = dpop;
 	NEXT
 
 #endif
