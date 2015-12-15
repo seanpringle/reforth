@@ -899,13 +899,13 @@ create input 100 allot
 		point "^([a-zA-Z0-9_]+)[[:space:]]*=>" match?
 		if fg-variable word exit end
 
-		point "^(node|file|exec|include|class|define|require|if|unless|else)[[:space:]]" match?
+		point "^(node|file|exec|augeas|include|class|define|require|if|unless|else|case)[[:space:]]" match?
 		if fg-keyword word exit end
 
-		point "^(template|file|hiera)[[:space:]]*[(]" match?
+		point "^(template|file|hiera|fail)[[:space:]]*[(]" match?
 		if fg-coreword word exit end
 
-		point "^(exists|present|latest|file|directory|root|undef|true|false)[[:space:],{(]+" match?
+		point "^(exists|present|latest|file|directory|root|undef|true|false|default)[[:space:]:,{(]+" match?
 		if fg-constant word exit end
 
 		point "^[A-Z][a-zA-Z0-9_]+[\\[]" match?

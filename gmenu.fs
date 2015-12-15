@@ -31,7 +31,7 @@
 
 	normal
 
-	\ Usage: $EDITOR $(find | gmenu)
+	\ Usage: $EDITOR $(find -type f | gmenu)
 	\
 	\ Interactive grep for a line of text from stdin.
 
