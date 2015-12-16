@@ -1,7 +1,7 @@
 CFLAGS?=-Wall -Wno-unused -Wno-unused-result -O2 -g
 TURNKEY={ echo 'const char src_turnkey[] = {'; cat $(1) | xxd -i; echo ',0};'; } >src_turnkey.c
 
-normal: generic shell editor tools cgi
+normal: generic shell editor tools cgi rts
 
 generic:
 	{ echo 'const char src_base[] = {'; cat base.fs | xxd -i; echo ',0};'; } >src_base.c
@@ -29,6 +29,11 @@ cgi:
 	$(call TURNKEY,web.fs)
 	$(CC) -DTURNKEY -DLIB_SHELL -DLIB_REGEX -DLIB_FORK -o web reforth.c $(CFLAGS)
 	strip web
+
+rts:
+	$(call TURNKEY,rts.fs)
+	$(CC) -DTURNKEY -DLIB_SHELL -DLIB_REGEX -DLIB_FORK -o rg reforth.c $(CFLAGS)
+	strip rg
 
 compare:
 	gcc   -DLIB_SHELL -DLIB_REGEX -DLIB_FORK -o reforth_gcc reforth.c $(CFLAGS)
