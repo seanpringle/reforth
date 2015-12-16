@@ -53,6 +53,27 @@
 	: tile ( x y -- a )
 		max_x * + map ;
 
+	: lowest ( -- n )
+		0 0 tile @
+		max_x
+		for
+			i my! max_y
+			for
+				my i tile @ min
+			end
+		end ;
+
+	: elevate ( n -- )
+		my!
+		0 0 tile at!
+		max_x
+		for
+			max_y
+			for
+				at @ my + !+
+			end
+		end ;
+
 	: average ( x y n -- )
 
 		static locals
@@ -97,10 +118,11 @@
 	: zoom ( -- )
 
 		static locals
-			0 value zx
-			0 value zy
-			max_x 10 / value zoom_x
-			max_y 10 / value zoom_y
+			 0 value zx
+			 0 value zy
+			10 value scale
+			max_x scale / value zoom_x
+			max_y scale / value zoom_y
 			zoom_x zoom_y * array zmap
 		end
 
@@ -124,9 +146,9 @@
 				zx zy ztile @ my!
 				zoom_x
 				for
-					i zx 10 * + zoom_y
+					i zx scale * + zoom_y
 					for
-						my over i zy 10 * + tile !
+						my over i zy scale * + tile !
 					end
 					drop
 				end
@@ -138,7 +160,8 @@
 		3 smooth
 		zoom
 		randomize
-		7 smooth
+		5 smooth
+		lowest neg elevate
 	;
 ;
 
