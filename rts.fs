@@ -44,8 +44,8 @@
 : arena ( -- )
 
 	static locals
-		100 value max_x
-		100 value max_y
+		250 value max_x
+		250 value max_y
 		 10 value max_z
 		max_x max_y * array map
 	end
@@ -53,45 +53,93 @@
 	: tile ( x y -- a )
 		max_x * + map ;
 
-	: smooth ( x y -- )
+	: average ( x y n -- )
 
-		\ adjust x,y to mean of 3x3 grid values
-		over 1- over 1- tile @ push
-		over    over 1- tile @ push
-		over 1+ over 1- tile @ push
-		over 1- over    tile @ push
-		over    over    tile @ push
-		over 1+ over    tile @ push
-		over 1- over 1+ tile @ push
-		over    over 1+ tile @ push
-		over 1+ over 1+ tile @ push
+		static locals
+			0 value x
+			0 value y
+			0 value n
+		end
 
-		tile
+		to n
+		n 2/ - to y
+		n 2/ - to x
 
-		pop pop pop pop pop pop pop pop pop
-		+ + + + + + + + 9 / swap ! ;
+		0 my!
 
-	: generate ( -- )
+		n for
+			i x +
+			n for
+				dup i y + tile @ my + my!
+			end
+			drop
+		end
+
+		my n n * / x y tile ! ;
+
+	: smooth ( n -- )
+		max_x
+		for	i my! max_y
+			for
+				dup my i rot average
+			end
+		end drop ;
+
+	: randomize ( -- )
 		0 0 tile at!
 		max_x
 		for	max_y
 			for	max_z 1-
-				random 1+ !+
+				random 1+ at @ + !+
 			end
+		end ;
+
+	: zoom ( -- )
+
+		static locals
+			0 value zx
+			0 value zy
+			max_x 10 / value zoom_x
+			max_y 10 / value zoom_y
+			zoom_x zoom_y * array zmap
 		end
-		max_x max_y *
+
+		: ztile ( x y -- )
+			zoom_x * + zmap ;
+
+		zoom_x
 		for
-			max_x random max_y random
-			smooth
-		end
-		max_x
-		for	i my! max_y
+			i my! zoom_y
 			for
-				my i smooth
+				my i tile @ my i ztile !
 			end
 		end
 
-		 ;
+		zoom_x
+		for
+			i to zx
+			zoom_y
+			for
+				i to zy
+				zx zy ztile @ my!
+				zoom_x
+				for
+					i zx 10 * + zoom_y
+					for
+						my over i zy 10 * + tile !
+					end
+					drop
+				end
+			end
+		end ;
+
+	: generate ( -- )
+		randomize
+		3 smooth
+		zoom
+		randomize
+		7 smooth
+	;
 ;
 
 
@@ -228,9 +276,9 @@
 		rows
 		for	i to row
 			0 row at-xy
-			cols
+			cols 2/
 			for	i to col
-				col row arena:tile @ gray space
+				col row arena:tile @ dup gray "%02d" print
 			end
 			bg-normal erase
 		end ;
