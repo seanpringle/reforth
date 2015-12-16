@@ -101,7 +101,7 @@ enum {
 	XT_HEAD, XT_NAME, XT_CODE, XT_BODY, XT_LIST, XT_LINK, PARSE, SPARSE, FIND,
 	FINDPAIR, COMPILE, NCOMPILE, SCOMPILE, MODE, LABEL, REDOES, ONOK, ONWHAT,
 	ONERROR, ONEVAL, SOURCE, ERROR, USEC, STATIC, RANDOM, TIME, DATE,
-	FILL, CFILL,
+	FILL, CFILL, USED, UNUSED,
 
 	OPT_DUP_SAT, OPT_DUP_SMY, OPT_DUP_WHILE, OPT_DUP_UNTIL, OPT_DUP_BRANCH,
 	OPT_IDX_ADD, OPT_LIT_NUM_ADD,
@@ -209,6 +209,8 @@ wordinit list_normals[] = {
 	{ .token = DEPTH,    .name = "depth"    },
 	{ .token = HERE,     .name = "here"     },
 	{ .token = ALLOT,    .name = "allot"    },
+	{ .token = USED,     .name = "used"     },
+	{ .token = UNUSED,   .name = "unused"   },
 	{ .token = COUNT,    .name = "count"    },
 	{ .token = COMPARE,  .name = "compare"  },
 	{ .token = GETENV,   .name = "getenv"   },
@@ -1871,11 +1873,8 @@ main(int argc, char *argv[], char *env[])
 	// ( -- xt )
 	CODE(LABEL)
 		dpush(tos);
-		if (hp-head == MAXTOKEN)
-		{
-			fprintf(stderr, "out of tokens!\n");
-			exit(1);
-		}
+		ensure(hp-head < MAXTOKEN)
+			errorf("out of tokens");
 		xt = label(&hp);
 		call[xt] = &&code_ENTER;
 		body[xt] = cp;
@@ -2103,6 +2102,18 @@ main(int argc, char *argv[], char *env[])
 	CODE(HERE)
 		dpush(tos);
 		tos = (cell)cp;
+	NEXT
+
+	// ( -- a )
+	CODE(USED)
+		dpush(tos);
+		tos = (cell)(cp-code);
+	NEXT
+
+	// ( -- a )
+	CODE(UNUSED)
+		dpush(tos);
+		tos = (cell)(&code[CODESPACE] - cp);
 	NEXT
 
 	// ( n -- )
