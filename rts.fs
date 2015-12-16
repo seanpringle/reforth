@@ -40,128 +40,127 @@
 
 ;
 
-
-: arena ( -- )
+: heightmap ( x y z buffer -- )
 
 	static locals
-		250 value max_x
-		250 value max_y
-		 10 value max_z
-		max_x max_y * array map
+		 0 value x
+		 0 value y
+		 0 value z
+		 0 value buff
 	end
 
+	to buff
+	to z
+	to y
+	to x
+
 	: tile ( x y -- a )
-		max_x * + map ;
+		0 max y 1- min push
+		0 max x 1- min pop
+		x * + buff + ;
 
-	: lowest ( -- n )
-		0 0 tile @
-		max_x
-		for
-			i my! max_y
-			for
-				my i tile @ min
-			end
-		end ;
-
-	: elevate ( n -- )
+	: randomize ( n -- )
 		my!
 		0 0 tile at!
-		max_x
-		for
-			max_y
-			for
-				at @ my + !+
+		x for
+			y for
+				my random at c@ + c!+
 			end
 		end ;
 
-	: average ( x y n -- )
-
-		static locals
-			0 value x
-			0 value y
-			0 value n
-		end
-
-		to n
-		n 2/ - to y
-		n 2/ - to x
-
-		0 my!
-
-		n for
-			i x +
-			n for
-				dup i y + tile @ my + my!
-			end
-			drop
-		end
-
-		my n n * / x y tile ! ;
-
-	: smooth ( n -- )
-		max_x
-		for	i my! max_y
-			for
-				dup my i rot average
-			end
-		end drop ;
-
-	: randomize ( -- )
-		0 0 tile at!
-		max_x
-		for	max_y
-			for	max_z 1-
-				random 1+ at @ + !+
+	: smooth ( -- )
+		x for
+			i my!
+			y for 0
+				my 1- i 1- tile c@ +
+				my 1- i    tile c@ +
+				my 1- i 1+ tile c@ +
+				my    i 1- tile c@ +
+				my    i    tile c@ +
+				my    i 1+ tile c@ +
+				my 1+ i 1- tile c@ +
+				my 1+ i    tile c@ +
+				my 1+ i 1+ tile c@ +
+				9 / my i tile c!
 			end
 		end ;
 
 	: zoom ( -- )
 
 		static locals
-			 0 value zx
-			 0 value zy
-			10 value scale
-			max_x scale / value zoom_x
-			max_y scale / value zoom_y
-			zoom_x zoom_y * array zmap
+			0 value tmp
+			0 value xs
+			0 value ys
 		end
 
-		: ztile ( x y -- )
-			zoom_x * + zmap ;
+		: scale ( n -- n' )
+			8 / ;
 
-		zoom_x
-		for
-			i my! zoom_y
-			for
-				my i tile @ my i ztile !
+		x scale to xs
+		y scale to ys
+
+		: ztile ( x y -- a )
+			xs * + tmp + ;
+
+		xs ys * allocate to tmp
+
+		xs for
+			i my!
+			ys for
+				my i tile  c@
+				my i ztile c!
 			end
 		end
 
-		zoom_x
-		for
-			i to zx
-			zoom_y
-			for
-				i to zy
-				zx zy ztile @ my!
-				zoom_x
-				for
-					i zx scale * + zoom_y
-					for
-						my over i zy scale * + tile !
-					end
-					drop
-				end
+		x for
+			i my!
+			y for
+				my scale i scale ztile c@
+				my i tile c!
+			end
+		end
+
+		tmp free ;
+
+	: lowest ( -- n )
+		0 0 tile c@
+		x for
+			i my!
+			y for
+				my i tile c@ min
 			end
 		end ;
 
+	: adjust ( -- )
+		lowest neg
+		0 0 tile at!
+		x for
+			y for
+				at c@ over + c!+
+			end
+		end drop ;
+
+	z randomize
+	smooth
+	zoom
+	z 2/ randomize
+	smooth
+	adjust ;
+
+: arena ( -- )
+
+	static locals
+		256 value max_x
+		256 value max_y
+		 16 value max_z
+		max_x max_y * buffer map
+	end
+
+	: tile ( x y -- a )
+		max_x * + map ;
+
 	: generate ( -- )
-		randomize
-		3 smooth
-		zoom
-		randomize
-		5 smooth
-		lowest neg elevate
+		max_x max_y max_z 0 map heightmap
 	;
 ;
 
@@ -301,7 +300,7 @@
 			0 row at-xy
 			cols 2/
 			for	i to col
-				col row arena:tile @ dup gray "%02d" print
+				col row arena:tile c@ dup gray "%02d" print
 			end
 			bg-normal erase
 		end ;
