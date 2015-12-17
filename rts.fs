@@ -145,16 +145,17 @@
 	zoom
 	z 2/ randomize
 	smooth
+	smooth
 	adjust ;
 
 : arena ( -- )
 
 	static locals
-		256 value max_x
-		256 value max_y
+		128 value max_x
+		128 value max_y
 		 16 value max_z
 		  5 value sealevel
-		 12 value snowline
+		 11 value snowline
 		max_x max_y * buffer map
 	end
 
@@ -202,6 +203,9 @@
 		"\e[49;1m"  blat bg-active
 		"\e[47;22m" blat bg-marked
 		"\e[49;1m"  blat bg-status
+
+		0 value vx
+		0 value vy
 
 		0 value col
 		0 value row
@@ -301,6 +305,11 @@
 		sys:buffered
 		;
 
+	: north ( -- ) vy 1- 0 max to vy ;
+	: south ( -- ) vy 1+ arena:max_y rows - min to vy ;
+	: east  ( -- ) vx 1+ arena:max_x cols 2/ - min to vx ;
+	: west  ( -- ) vx 1- 0 max to vx ;
+
 	: col+ ( -- )
 		col 1+ to col ;
 
@@ -316,7 +325,7 @@
 			0 row at-xy
 			cols 2/
 			for	i to col
-				col row arena:tile c@ color space space
+				col vx + row vy + arena:tile c@ color space space
 			end
 			bg-normal erase
 		end ;
@@ -332,7 +341,18 @@
 		display:render
 		1000 usec
 
-		key? until
+		key?
+		if
+			key my!
+
+			my `a = if display:west  end
+			my `d = if display:east  end
+			my `w = if display:north end
+			my `s = if display:south end
+
+			my `q = until
+
+		end
 	end
 
 	display:stop ;
