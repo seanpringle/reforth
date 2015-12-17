@@ -153,6 +153,8 @@
 		256 value max_x
 		256 value max_y
 		 16 value max_z
+		  5 value sealevel
+		 12 value snowline
 		max_x max_y * buffer map
 	end
 
@@ -269,7 +271,21 @@
 		end ;
 
 	: gray ( n -- )
-		25 * dup dup colors:xterm-color 48 "\e[%d;5;%dm" print ;
+		24 * dup dup
+		colors:xterm-color 48 "\e[%d;5;%dm" print ;
+
+	: blue ( n -- )
+		10 * dup my! 30 + dup my 150 +
+		colors:xterm-color 48 "\e[%d;5;%dm" print ;
+
+	: green ( n -- )
+		arena:sealevel - 10 * dup my! 50 + my 150 + over
+		colors:xterm-color 48 "\e[%d;5;%dm" print ;
+
+	: color ( n -- )
+		dup arena:sealevel < if blue  exit end
+		dup arena:snowline < if green exit end
+		gray ;
 
 	: start ( -- )
 		sys:pseudo-terminal
@@ -300,7 +316,7 @@
 			0 row at-xy
 			cols 2/
 			for	i to col
-				col row arena:tile c@ dup gray "%02d" print
+				col row arena:tile c@ color space space
 			end
 			bg-normal erase
 		end ;
