@@ -339,20 +339,15 @@
 
 	begin
 		display:render
-		1000 usec
 
-		key?
-		if
-			key my!
+		key my!
 
-			my `a = if display:west  end
-			my `d = if display:east  end
-			my `w = if display:north end
-			my `s = if display:south end
+		my `a = if display:west  end
+		my `d = if display:east  end
+		my `w = if display:north end
+		my `s = if display:south end
 
-			my `q = until
-
-		end
+		my `q = until
 	end
 
 	display:stop ;
