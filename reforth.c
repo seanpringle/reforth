@@ -101,7 +101,7 @@ enum {
 	XT_HEAD, XT_NAME, XT_CODE, XT_BODY, XT_LIST, XT_LINK, PARSE, SPARSE, FIND,
 	FINDPAIR, COMPILE, NCOMPILE, SCOMPILE, MODE, LABEL, REDOES, ONOK, ONWHAT,
 	ONERROR, ONEVAL, SOURCE, ERROR, USEC, STATIC, RANDOM, TIME, DATE,
-	FILL, CFILL, USED, UNUSED,
+	FILL, CFILL, USED, UNUSED, INV,
 
 	OPT_DUP_SAT, OPT_DUP_SMY, OPT_DUP_WHILE, OPT_DUP_UNTIL, OPT_DUP_BRANCH,
 	OPT_IDX_ADD, OPT_LIT_NUM_ADD,
@@ -179,6 +179,7 @@ wordinit list_normals[] = {
 	{ .token = AND,      .name = "and"      },
 	{ .token = OR,       .name = "or"       },
 	{ .token = XOR,      .name = "xor"      },
+	{ .token = INV,      .name = "inv"      },
 	{ .token = LESS,     .name = "<"        },
 	{ .token = MORE,     .name = ">"        },
 	{ .token = EQUAL,    .name = "="        },
@@ -1710,6 +1711,11 @@ main(int argc, char *argv[], char *env[])
 	// ( n m -- n^m )
 	CODE(XOR)
 		tos = dpop ^ tos;
+	NEXT
+
+	// ( n -- n' )
+	CODE(INV)
+		tos = ~tos;
 	NEXT
 
 	// ( n m -- f )

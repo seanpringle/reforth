@@ -137,9 +137,6 @@ stack redos
 : copy ( a -- b )
 	dup count ncopy ;
 
-: match? ( s p -- f )
-	match nip ;
-
 : white? ( c -- f )
 	dup \s = swap \t = or ;
 

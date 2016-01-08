@@ -340,12 +340,16 @@
 	begin
 		display:render
 
-		key my!
+		begin
+			key my!
 
-		my `a = if display:west  end
-		my `d = if display:east  end
-		my `w = if display:north end
-		my `s = if display:south end
+			my `a = if display:west  end
+			my `d = if display:east  end
+			my `w = if display:north end
+			my `s = if display:south end
+
+			key? while
+		end
 
 		my `q = until
 	end

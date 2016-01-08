@@ -35,6 +35,8 @@ normal
 : >= my! 1+ my > ;
 : 2dup  over over ;
 : 2drop drop drop ;
+: on -1 swap ! ;
+: off 0 swap ! ;
 
 : what ( s -- f )
 	" what? %s" format error false ;
@@ -56,6 +58,7 @@ normal
 : string, 'sys:lit_str word, sys:scompile ;
 : place, here over count 1+ allot place ;
 : string create place, ;
+: strdup dup count 1+ allocate tuck place ;
 
 macro
 
@@ -91,6 +94,9 @@ normal
 
 : hex? ( c -- f )
 	dup my! 64 > my 71 < and my 96 > my 103 < and or my digit? or ;
+
+: match? ( s p -- f )
+	match nip ;
 
 : basename ( a -- a' )
 	dup "/[^/]+$" match if nip 1+ else drop end ;
@@ -183,7 +189,230 @@ normal
 	: get ( p a -- n )
 		at! 0 max at size @ 1- min cells at data @ + @ ;
 
+	: construct ( -- a )
+		fields allocate cell allocate over data ! ;
+
+	: destruct ( a -- )
+		dup data @ free free ;
+
 	create here fields allot cell allocate swap data ! does ;
+
+: list ( -- )
+
+	record fields
+		cell field first
+		cell field last
+		cell field nodes
+	end
+
+	record node_fields
+		cell field prev
+		cell field post
+		cell field payload
+	end
+
+	: length ( a -- n )
+		nodes @ ;
+
+	: link_before ( old new -- )
+		my! at! at prev @ if my at prev @ post ! end at my post ! at prev @ my prev ! my at prev ! ;
+
+	: link_after ( old new -- )
+		my! at! at post @ if my at post @ prev ! end at my prev ! at post @ my post ! my at post ! ;
+
+	: node_by_index ( pos a -- node )
+		at! my! at first @ begin dup while i my < while post @ end ;
+
+	: index_by_node ( node a -- pos )
+		at! my! at first @ begin dup while dup my = if drop i exit end post @ end drop -1 ;
+
+	: insert ( payload position a -- )
+		at! node_fields allocate my!
+		0 max at length min
+		begin
+			dup 0=
+			if
+				at first @
+				if
+					at first @ my link_before
+				else
+					my at last !
+				end
+				my at first !
+				leave
+			end
+			dup at length =
+			if
+				at last @ my link_after
+				my at last !
+				leave
+			end
+			dup at node_by_index my link_before
+			leave
+		end
+		drop my payload !
+		1 at nodes +! ;
+
+	: remove_node ( node a -- payload )
+		at! push
+
+		top post @
+		top prev @
+
+		over if dup if over over post ! end else dup at last  ! dup if 0 over post ! end end
+
+		swap
+
+		over if dup if over over prev ! end else dup at first ! dup if 0 over prev ! end end
+
+		drop drop
+
+		top payload @
+		pop free
+		-1 at nodes +! ;
+
+	: remove ( position a -- payload )
+		at! my! false
+		my 0 >= my at length < and
+		if
+			drop my at node_by_index at remove_node
+		end ;
+
+	: push ( payload a -- )
+		dup length swap insert ;
+
+	: pop ( a -- payload )
+		dup length 1- swap remove ;
+
+	: shove ( payload a -- )
+		0 swap insert ;
+
+	: shift ( a -- payload )
+		0 swap remove ;
+
+	: get ( position a -- payload )
+		at! at node_by_index dup if payload @ end ;
+
+	: set ( payload position a -- )
+		at! my! my at node_by_index dup if payload ! else drop my at insert end ;
+
+	: dump ( a -- )
+		"[ " type
+		first @ at!
+		begin at while
+			at post @
+			at prev @
+			at
+			at payload @
+			"%d (node: %x prev: %x post: %x)" print
+			at post @ at!
+			at if ", " type end
+		end
+		" ]" type ;
+
+	: construct ( -- a )
+		fields allocate ;
+
+	: destruct ( a -- )
+		dup first @ my!
+		begin my while
+			my post @ my free my!
+		end free ;
+
+	create fields allot does ;
+
+: dict ( chains -- )
+
+	record fields
+		cell field width
+		cell field chains
+	end
+
+	record node_fields
+		cell field name
+		cell field payload
+	end
+
+	: chain ( n a -- c )
+		chains @ swap cells + ;
+
+	: length ( a -- n )
+		at! 0 at width @ for i at chain @ list:length + end ;
+
+	: hash ( name -- n )
+		at! 5381 begin c@+ my! my while 33 * my + end ;
+
+	: locate_node ( name list -- node )
+		list:first @ my! dup count 1+
+		begin my while over over
+			my list:payload @ name @ swap compare while
+			my list:post @ my!
+		end
+		drop drop my ;
+
+	: insert ( payload name a -- )
+		at!
+		dup hash at width @ mod at chain @ my! ( payload name )
+		dup my locate_node dup
+		if
+			nip list:payload @ payload !
+		else
+			drop strdup
+			node_fields allocate
+			tuck name !
+			tuck payload !
+			my list:push
+		end ;
+
+	: remove ( name a -- payload )
+		at!
+		dup hash at width @ mod at chain @ my! ( payload name )
+		my locate_node dup
+		if
+			my list:remove_node my!
+			my name @ free
+			my payload @
+			my free
+		end ;
+
+	: exists ( name a -- flag )
+		at!
+		dup hash at width @ mod at chain @ my! ( payload name )
+		my locate_node 0<> ;
+
+	: get ( name a -- payload )
+		at!
+		dup hash at width @ mod at chain @ my! ( payload name )
+		my locate_node dup
+		if
+			list:payload @ payload @
+		end ;
+
+	: set ( payload name a -- )
+		insert ;
+
+	: dump ( a -- )
+		at!
+		at width @
+		for
+			i at chain @ list:first @
+			begin dup while
+				dup list:payload @
+				dup payload @ swap name @ "%s => %d\n" print
+				list:post @
+			end drop
+		end ;
+
+	: construct ( chains a -- )
+		at! dup at width ! dup cells allocate at chains !
+		for list:construct i at chain ! end ;
+
+	: destruct ( a -- )
+		at! at width @
+		for i at chain @ list:destruct end
+		at chains @ free ;
+
+	create here fields allot construct does ;
 
 : sort ( xt a n -- )
 
@@ -355,4 +584,82 @@ normal
 	end
 	edit:stop ;
 
+: license ( -- )
+
+	: . type cr ;
+
+	"Permission is hereby granted, free of charge, to any person obtaining"
+	. "a copy of this software and associated documentation files (the"
+	. "\"Software\"), to deal in the Software without restriction, including"
+	. "without limitation the rights to use, copy, modify, merge, publish,"
+	. "distribute, sublicense, and/or sell copies of the Software, and to"
+	. "permit persons to whom the Software is furnished to do so, subject to"
+	. "the following conditions:\n"
+
+	. "The above copyright notice and this permission notice shall be"
+	. "included in all copies or substantial portions of the Software.\n"
+
+	. "THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS"
+	. "OR IMPLIED, ADD1LUDING BUT NOT LIMITED TO THE WARRANTIES OF"
+	. "MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT."
+	. "IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY"
+	. "CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,"
+	. "TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE"
+	. "SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE." . ;
+
+\ Execute SOURCE as a system shell command
+: sh ( -- ) 0 sys:source @ null over system type c! ;
+
+: shell ( -- )
+
+	static locals
+		create input 1000 allot
+		0 value on-ok
+		0 value on-what
+		0 value on-error
+	end
+
+	: what ( s -- f )
+		" what? %s\n" print
+		depth for drop end false ;
+
+	: error ( n -- f ) my!
+		begin
+			my 1 =
+			if	" stack underflow!\n" type
+				false leave
+			end
+			my "error code %d" format type
+			false leave
+		end ;
+
+	: ok ( -- )
+		" ok " type .s cr ;
+
+	sys:on-ok    @ to on-ok
+	sys:on-what  @ to on-what
+	sys:on-error @ to on-error
+
+	'ok    sys:on-ok    !
+	'what  sys:on-what  !
+	'error sys:on-error !
+
+	sys:unbuffered
+
+	begin
+		"> " type 0 input c!
+		input 1000 accept drop
+		accept:done until
+		cr input evaluate drop
+	end
+
+	sys:buffered
+
+	on-ok    sys:on-ok    !
+	on-what  sys:on-what  !
+	on-error sys:on-error ! ;
+
+\ break point
+: ~ ( -- )
+	shell ;
 
