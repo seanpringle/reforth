@@ -51,7 +51,6 @@
 "\e[34;22m" blat fg-comment
 "\e[35;22m" blat fg-string
 "\e[49;22m" blat bg-normal
-"\e[49;1m"  blat bg-black
 
 : colors ( -- )
 
@@ -103,8 +102,7 @@
 		F0h F0h 8Ch fg-256 'fg-current  re
 		66h 66h 66h fg-256 'fg-comment  re
 		82h AAh 8Ch fg-256 'fg-string   re
-		30h 30h 30h bg-256 'bg-normal   re
-		00h 00h 00h bg-256 'bg-black    re
+		00h 00h 00h bg-256 'bg-normal   re
 	end ;
 
 : word ( -- )
@@ -116,12 +114,17 @@
 		1 3 shl value bit-exclaim
 		1 4 shl value bit-question
 		1 5 shl value bit-hyphen
+		1 6 shl value bit-colon
+		1 7 shl value bit-semicolon
+		1 8 shl value bit-paren
 
 		bit-period
-		bit-comma    or
-		bit-exclaim  or
-		bit-question or
-		bit-hyphen   or
+		bit-comma     or
+		bit-exclaim   or
+		bit-question  or
+		bit-hyphen    or
+		bit-colon     or
+		bit-semicolon or
 		value bit-punct
 	end
 
@@ -150,20 +153,28 @@
 	: toggle ( disable-bits toggle-bits a -- )
 		flags at! at @ swap xor push inv pop and !+ ;
 
-	: period   ( a -- ) push bit-punct bit-period   inv and bit-period   pop toggle ;
-	: comma    ( a -- ) push bit-punct bit-comma    inv and bit-comma    pop toggle ;
-	: question ( a -- ) push bit-punct bit-question inv and bit-question pop toggle ;
-	: exclaim  ( a -- ) push bit-punct bit-exclaim  inv and bit-exclaim  pop toggle ;
-	: hyphen   ( a -- ) push bit-punct bit-hyphen   inv and bit-hyphen   pop toggle ;
+	: period    ( a -- ) push bit-punct bit-period    inv and bit-period    pop toggle ;
+	: comma     ( a -- ) push bit-punct bit-comma     inv and bit-comma     pop toggle ;
+	: question  ( a -- ) push bit-punct bit-question  inv and bit-question  pop toggle ;
+	: exclaim   ( a -- ) push bit-punct bit-exclaim   inv and bit-exclaim   pop toggle ;
+	: hyphen    ( a -- ) push bit-punct bit-hyphen    inv and bit-hyphen    pop toggle ;
+	: colon     ( a -- ) push bit-punct bit-colon     inv and bit-colon     pop toggle ;
+	: semicolon ( a -- ) push bit-punct bit-semicolon inv and bit-semicolon pop toggle ;
 
 	: dquote ( a -- )
 		push 0 bit-dquote pop toggle ;
+
+	: dparen ( a -- )
+		push 0 bit-paren pop toggle ;
 
 	: punct? ( a -- n )
 		flags @ bit-punct and ;
 
 	: quote? ( a -- n )
 		flags @ bit-dquote and ;
+
+	: paren? ( a -- n )
+		flags @ bit-paren and ;
 
 	: hyphen? ( a -- n )
 		flags @ bit-hyphen and ;
@@ -202,6 +213,7 @@
 		static locals
 			0 value wrd
 			0 value quoted
+			0 value parens
 			0 value hyphenated
 			0 value self
 		end
@@ -219,6 +231,13 @@
 		for
 			i self words @ list:get to wrd
 
+			\ start of paren
+			parens 0= wrd word:paren? 0<> and
+			if
+				`( c!+
+				true to parens
+			end
+
 			\ start of quote
 			quoted 0= wrd word:quote? 0<> and
 			if
@@ -230,11 +249,13 @@
 
 			wrd word:punct? my! my
 			if
-				my word:bit-period   and if `. c!+ end
-				my word:bit-comma    and if `, c!+ end
-				my word:bit-question and if `? c!+ end
-				my word:bit-exclaim  and if `! c!+ end
-				my word:bit-hyphen   and if `- c!+ end
+				my word:bit-period    and if `. c!+ end
+				my word:bit-comma     and if `, c!+ end
+				my word:bit-question  and if `? c!+ end
+				my word:bit-exclaim   and if `! c!+ end
+				my word:bit-hyphen    and if `- c!+ end
+				my word:bit-colon     and if `: c!+ end
+				my word:bit-semicolon and if `; c!+ end
 			end
 
 			\ end of quote
@@ -245,6 +266,17 @@
 				if
 					`" c!+
 					false to quoted
+				end
+			end
+
+			\ end of paren
+			parens
+			if
+				i 1+ self words @ list:get my!
+				my 0= my if my word:paren? 0= or end
+				if
+					`) c!+
+					false to parens
 				end
 			end
 
@@ -259,11 +291,19 @@
 
 	: insert_after ( a -- )
 		at! word:construct my! my at cursor @ 1+ at words @ list:insert
-		at current if at current word:quote? if my word:dquote end end ;
+		at current
+		if
+			at current word:quote? if my word:dquote end
+			at current word:paren? if my word:dparen end
+		end ;
 
 	: insert_before ( a -- )
 		at! word:construct my! my at cursor @ 1- 0 max at words @ list:insert 1 at cursor +!
-		at current if at current word:quote? if my word:dquote end end ;
+		at current
+		if
+			at current word:quote? if my word:dquote end
+			at current word:paren? if my word:dparen end
+		end ;
 
 	: current_blur ( a -- )
 		at! at current dup word:blur word:empty? at length 0> and
@@ -379,12 +419,15 @@
 		end
 		false ;
 
-	: period   ( a -- ) current word:period ;
-	: comma    ( a -- ) current word:comma ;
-	: question ( a -- ) current word:question ;
-	: exclaim  ( a -- ) current word:exclaim ;
-	: hyphen   ( a -- ) current word:hyphen ;
-	: dquote   ( a -- ) current word:dquote ;
+	: period    ( a -- ) current word:period ;
+	: comma     ( a -- ) current word:comma ;
+	: question  ( a -- ) current word:question ;
+	: exclaim   ( a -- ) current word:exclaim ;
+	: hyphen    ( a -- ) current word:hyphen ;
+	: colon     ( a -- ) current word:colon ;
+	: semicolon ( a -- ) current word:semicolon ;
+	: dquote    ( a -- ) current word:dquote ;
+	: dparen    ( a -- ) current word:dparen ;
 
 	: split ( b a -- )
 		at! my!
@@ -502,12 +545,15 @@
 	: bar ( a -- )
 		at! at current paragraph:insert_after at right ;
 
-	: period   ( a -- ) current paragraph:period ;
-	: comma    ( a -- ) current paragraph:comma ;
-	: question ( a -- ) current paragraph:question ;
-	: exclaim  ( a -- ) current paragraph:exclaim ;
-	: hyphen   ( a -- ) current paragraph:hyphen ;
-	: dquote   ( a -- ) current paragraph:dquote ;
+	: period    ( a -- ) current paragraph:period ;
+	: comma     ( a -- ) current paragraph:comma ;
+	: question  ( a -- ) current paragraph:question ;
+	: exclaim   ( a -- ) current paragraph:exclaim ;
+	: hyphen    ( a -- ) current paragraph:hyphen ;
+	: colon     ( a -- ) current paragraph:colon ;
+	: semicolon ( a -- ) current paragraph:semicolon ;
+	: dquote    ( a -- ) current paragraph:dquote ;
+	: dparen    ( a -- ) current paragraph:dparen ;
 
 	: save ( a -- )
 		push 0
@@ -529,18 +575,21 @@
 
 		static locals
 			0 value unquote
+			0 value unparen
 		end
 
 		push top name slurp dup at!
 		begin at while c@+ my! my while
 
-			my `. = if top period   next end
-			my `, = if top comma    next end
-			my `? = if top question next end
-			my `! = if top exclaim  next end
+			my `. = if top period    next end
+			my `, = if top comma     next end
+			my `? = if top question  next end
+			my `! = if top exclaim   next end
+			my `: = if top colon     next end
+			my `; = if top semicolon next end
 			my `- = if top hyphen top bar next end
 			my \n = if top enter top enter next end
-			my \s = if top bar      next end
+			my \s = if top bar       next end
 
 			unquote
 			if
@@ -553,6 +602,22 @@
 				at c@ space? dup to unquote
 				0= if
 					top dquote
+				end
+				next
+			end
+
+			unparen
+			if
+				top dparen
+				false to unparen
+			end
+
+			my `( =
+			my `) = or
+			if
+				at c@ space? dup to unparen
+				0= if
+					top dparen
 				end
 				next
 			end
@@ -680,19 +745,18 @@
 		static locals
 			create pad 32 allot
 			0 value quoted
+			0 value parens
 			0 value hyphenated
 		end
 
 		false to quoted
+		false to parens
 		false to hyphenated
 
 		indent
 		words list:length
 		for
 			i words list:get to wrd
-
-			pgf-current? wrd-current? and
-			if fg-current else fg-normal end
 
 			wrd word:get dup c@ 0= if drop "_" end
 
@@ -701,11 +765,13 @@
 			wrd word:punct? my! my
 			if
 				pad count pad + at!
-				my word:bit-period   and if `. c!+ end
-				my word:bit-comma    and if `, c!+ end
-				my word:bit-question and if `? c!+ end
-				my word:bit-exclaim  and if `! c!+ end
-				my word:bit-hyphen   and if `- c!+ end
+				my word:bit-period    and if `. c!+ end
+				my word:bit-comma     and if `, c!+ end
+				my word:bit-question  and if `? c!+ end
+				my word:bit-exclaim   and if `! c!+ end
+				my word:bit-hyphen    and if `- c!+ end
+				my word:bit-colon     and if `: c!+ end
+				my word:bit-semicolon and if `; c!+ end
 				0 c!+
 			end
 			\ start of quote
@@ -713,6 +779,12 @@
 			if
 				pad dup 1+ place pad at! `" c!+
 				true to quoted
+			end
+			\ start of paren
+			parens 0= wrd word:paren? 0<> and
+			if
+				pad dup 1+ place pad at! `( c!+
+				true to parens
 			end
 			\ end of quote
 			quoted
@@ -725,6 +797,17 @@
 					false to quoted
 				end
 			end
+			\ end of paren
+			parens
+			if
+				i 1+ words list:get my!
+				my 0= my if my word:paren? 0= or end
+				if
+					pad count pad + at!
+					`) c!+ 0 c!+
+					false to parens
+				end
+			end
 			pad
 
 			dup count col + width margin + >=
@@ -735,6 +818,20 @@
 
 			col wrd word:col !
 			row wrd word:row !
+
+			begin
+				pgf-current? wrd-current? and
+				if fg-current leave end
+
+				wrd word:quote?
+				if fg-string leave end
+
+				wrd word:paren?
+				if fg-comment leave end
+
+				fg-normal
+				leave
+			end
 
 			output
 
@@ -820,12 +917,15 @@
 	: away    ( -- ) the-doc document:away ;
 	: bar     ( -- ) the-doc document:bar ;
 
-	: period   ( -- ) the-doc document:period ;
-	: comma    ( -- ) the-doc document:comma ;
-	: question ( -- ) the-doc document:question ;
-	: exclaim  ( -- ) the-doc document:exclaim ;
-	: hyphen   ( -- ) the-doc document:hyphen ;
-	: dquote   ( -- ) the-doc document:dquote ;
+	: period    ( -- ) the-doc document:period ;
+	: comma     ( -- ) the-doc document:comma ;
+	: question  ( -- ) the-doc document:question ;
+	: exclaim   ( -- ) the-doc document:exclaim ;
+	: hyphen    ( -- ) the-doc document:hyphen ;
+	: colon     ( -- ) the-doc document:colon ;
+	: semicolon ( -- ) the-doc document:semicolon ;
+	: dquote    ( -- ) the-doc document:dquote ;
+	: dparen    ( -- ) the-doc document:dparen ;
 
 	: idiots ( -- )
 		edit:escseq dup count + 1- c@ `H = if home else away end ;
@@ -852,12 +952,16 @@
 		'back    127 ikey !
 		'bar      \s ikey !
 
-		'period   `. ikey !
-		'comma    `, ikey !
-		'question `? ikey !
-		'exclaim  `! ikey !
-		'hyphen   `- ikey !
-		'dquote   `" ikey !
+		'period    `. ikey !
+		'comma     `, ikey !
+		'question  `? ikey !
+		'exclaim   `! ikey !
+		'hyphen    `- ikey !
+		'colon     `: ikey !
+		'semicolon `; ikey !
+		'dquote    `" ikey !
+		'dparen    `( ikey !
+		'dparen    `) ikey !
 
 		'up      `A iekey !
 		'down    `B iekey !
@@ -911,7 +1015,11 @@
 		my `? <> and
 		my `! <> and
 		my `" <> and
+		my `( <> and
+		my `) <> and
 		my `- <> and
+		my `: <> and
+		my `; <> and
 		if
 			my insert
 			next
