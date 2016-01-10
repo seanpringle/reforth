@@ -34,77 +34,6 @@
 	\ Usage: rp [file]
 ;
 
-: blat ( s -- )
-	here swap place, create , does @ type ;
-
-"\e[K"    blat erase
-"\e[?25h" blat cursor-on
-"\e[?25l" blat cursor-off
-"\e7"     blat cursor-save
-"\e8"     blat cursor-back
-"\e[?7h"  blat wrap-on
-"\e[?7l"  blat wrap-off
-
-\ Default 16 color mode
-"\e[39;22m" blat fg-normal
-"\e[33;22m" blat fg-current
-"\e[34;22m" blat fg-comment
-"\e[35;22m" blat fg-string
-"\e[49;22m" blat bg-normal
-
-: colors ( -- )
-
-	: xterm-color ( r g b -- n )
-
-		: xcolor? ( n -- f )
-			dup 0= over 5Eh > or swap 55 - 0 max 40 mod 0= and ;
-
-		: color? ( r g b -- r g b f )
-			dup xcolor? push rot
-			dup xcolor? push rot
-			dup xcolor? push rot
-			pop pop pop and and ;
-
-		: grey? ( r g b -- r g b f )
-			push over over = my! pop over over = my and ;
-
-		: scale ( n -- n' )
-			55 - 0 max 20 + 40 / ;
-
-		: to-color ( r g b -- n )
-			scale swap scale 6 * + swap scale 36 * + 16 + ;
-
-		: to-grey ( r g b -- n )
-			swap 8 shl or swap 16 shl or 657930 / 232 + ;
-
-		grey? push color? 0= pop and
-		if to-grey else to-color end
-		0 max 255 min ;
-
-	: escseq ( n -- s )
-		"\e[%d;5;%dm" format here swap place, ;
-
-	: fg-256 ( r g b -- a )
-		xterm-color 38 escseq ;
-
-	: bg-256 ( r g b -- a )
-		xterm-color 48 escseq ;
-
-	\ xterm 256-color mode
-	"TERM"      getenv "256color"       match?
-	"COLORTERM" getenv "gnome-terminal" match? or
-	if
-
-		: re ( s xt -- )
-			sys:xt-body @ @ ! ;
-
-		D8h D8h D8h fg-256 'fg-normal   re
-		F0h F0h 8Ch fg-256 'fg-current  re
-		66h 66h 66h fg-256 'fg-comment  re
-		82h AAh 8Ch fg-256 'fg-string   re
-		00h 00h 00h bg-256 'bg-normal   re
-	end ;
-
 : word ( -- )
 
 	static locals
@@ -651,6 +580,78 @@
 
 : display ( document -- )
 
+	: blat ( s -- )
+		here swap place, create , does @ type ;
+
+	static sequences
+		"\e[K"    blat erase
+		"\e[?25h" blat cursor-on
+		"\e[?25l" blat cursor-off
+		"\e7"     blat cursor-save
+		"\e8"     blat cursor-back
+		"\e[?7h"  blat wrap-on
+		"\e[?7l"  blat wrap-off
+		\ Default 16 color mode
+		"\e[39;22m" blat fg-normal
+		"\e[33;22m" blat fg-current
+		"\e[34;22m" blat fg-comment
+		"\e[35;22m" blat fg-string
+		"\e[49;22m" blat bg-normal
+	end
+
+	: colors ( -- )
+
+		: xterm-color ( r g b -- n )
+
+			: xcolor? ( n -- f )
+				dup 0= over 5Eh > or swap 55 - 0 max 40 mod 0= and ;
+
+			: color? ( r g b -- r g b f )
+				dup xcolor? push rot
+				dup xcolor? push rot
+				dup xcolor? push rot
+				pop pop pop and and ;
+
+			: grey? ( r g b -- r g b f )
+				push over over = my! pop over over = my and ;
+
+			: scale ( n -- n' )
+				55 - 0 max 20 + 40 / ;
+
+			: to-color ( r g b -- n )
+				scale swap scale 6 * + swap scale 36 * + 16 + ;
+
+			: to-grey ( r g b -- n )
+				swap 8 shl or swap 16 shl or 657930 / 232 + ;
+
+			grey? push color? 0= pop and
+			if to-grey else to-color end
+			0 max 255 min ;
+
+		: escseq ( n -- s )
+			"\e[%d;5;%dm" format here swap place, ;
+
+		: fg-256 ( r g b -- a )
+			xterm-color 38 escseq ;
+
+		: bg-256 ( r g b -- a )
+			xterm-color 48 escseq ;
+
+		\ xterm 256-color mode
+		"TERM"      getenv "256color"       match?
+		"COLORTERM" getenv "gnome-terminal" match? or
+		if
+
+			: re ( s xt -- )
+				sys:xt-body @ @ ! ;
+
+			D8h D8h D8h fg-256 'fg-normal   re
+			F0h F0h 8Ch fg-256 'fg-current  re
+			66h 66h 66h fg-256 'fg-comment  re
+			82h AAh 8Ch fg-256 'fg-string   re
+			00h 00h 00h bg-256 'bg-normal   re
+		end ;
+
 	static locals
 		0 value row
 		0 value col
@@ -702,7 +703,7 @@
 		dup 2 mod if 2/ 1+ else 2/ end ;
 
 	: start ( -- )
-		cursor-off wrap-off fg-normal bg-normal ;
+		colors cursor-off wrap-off fg-normal bg-normal ;
 
 	: stop ( -- )
 		cursor-on wrap-on fg-normal bg-normal ;
@@ -727,7 +728,7 @@
 			begin c@+ my!
 				my 0= if drop at 1- end
 				my while
-				i width < while
+				i width <= while
 				my \s = if drop at 1- end
 				my `- = if drop at end
 			end ;
@@ -892,17 +893,11 @@
 	: the-doc ( -- a )
 		documents.first @ list:payload @ ;
 
-	: the-para ( -- a )
-		the-doc document:current ;
-
-	: the-word ( -- a )
-		the-para paragraph:current ;
-
 	: halt ( -- )
 		display:stop the-doc document:save bye ;
 
 	: insert ( c -- )
-		the-word word:append ;
+		the-doc document:current paragraph:current word:append ;
 
 	: enter   ( -- ) the-doc document:enter ;
 	: tab ;
@@ -1028,8 +1023,6 @@
 		my ikey @ execute
 		next
 	end ;
-
-colors
 
 \ Be friendly
 1 arg "^--help$" match?
