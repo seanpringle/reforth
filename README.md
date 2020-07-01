@@ -304,8 +304,7 @@ Above, the *outer:inner* static notation has been tweaked to be **object.method*
 
 1. Look for the word **hamper** in the dicitonary
 1. Look for the sub-word **count-fruit** in **hamper**'s list
-1. Execute or compile **hamper**
-1. Execute or compile **cheer**
+1. Execute or compile **count-fruit**
 
 Step #2 works because Reforth's word **does** patches the defining word's sub-word list into created words' headers, ie, **hamper** inherits **fruit-basket**'s sub-word list.
 
